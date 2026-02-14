@@ -42,6 +42,11 @@ redis_data/
 htmlcov/
 .pytest_cache/
 
-# Model cache
-models/
+# Model cache (ML models, not source code)
+*.bin
+*.onnx
+*.pt
+*.pth
+*.h5
+*.pkl
 .cache/
