@@ -1,0 +1,49 @@
+[project]
+name = "myagenticragframework"
+version = "0.1.0"
+description = "Agentic RAG Framework with hybrid search, multilingual support, and multi-provider LLM"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-text-splitters>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-ollama>=0.2.0",
+    "qdrant-client>=1.12.0",
+    "httpx>=0.28.0",
+    "boto3>=1.35.0",
+    "unstructured[pdf,docx,xlsx]>=0.16.0",  # PDF, DOCX, Excel parsing support
+    "pydantic-settings>=2.6.0",
+    "langgraph-sdk>=0.1.36",
+    "langgraph-checkpoint-postgres>=2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

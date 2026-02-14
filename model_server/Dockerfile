@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Upgrade pip first
+RUN pip install --upgrade pip setuptools wheel
+
+# Install dependencies with cache mount for faster rebuilds
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+
+# Pre-download lighter models at build time (with cache for model downloads)
+RUN --mount=type=cache,target=/root/.cache/fastembed \
+    python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')"
+RUN --mount=type=cache,target=/root/.cache/fastembed \
+    python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(model_name='jinaai/jina-reranker-v1-tiny-en')"
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

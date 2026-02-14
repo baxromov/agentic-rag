@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --foreground-rgb: 15, 23, 42;
+    --background-start-rgb: 255, 255, 255;
+    --background-end-rgb: 249, 250, 251;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --foreground-rgb: 241, 245, 249;
+      --background-start-rgb: 15, 23, 42;
+      --background-end-rgb: 30, 41, 59;
+    }
+  }
+
+  body {
+    color: rgb(var(--foreground-rgb));
+    background: linear-gradient(
+      to bottom,
+      rgb(var(--background-start-rgb)),
+      rgb(var(--background-end-rgb))
+    );
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .message-bubble {
+    @apply rounded-lg px-4 py-3 max-w-3xl break-words;
+  }
+
+  .message-user {
+    @apply bg-blue-600 text-white ml-auto;
+  }
+
+  .message-assistant {
+    @apply bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 mr-auto;
+  }
+}

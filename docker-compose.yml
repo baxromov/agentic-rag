@@ -1,0 +1,200 @@
+services:
+  # -- MinIO (S3-compatible object storage) --
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # MinIO bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/documents
+      "
+    networks:
+      - rag-network
+
+  # -- Qdrant (Vector database) --
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # -- Redis (LangGraph pub/sub) --
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # -- PostgreSQL (LangGraph state persistence) --
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: langgraph
+      POSTGRES_PASSWORD: langgraph
+      POSTGRES_DB: langgraph
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langgraph"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # -- Model Server (embedding + reranker) --
+  model-server:
+    build:
+      context: ./model_server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rag-network
+
+  # -- FastAPI application --
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379
+      POSTGRES_URL: postgresql://langgraph:langgraph@postgres:5432/langgraph
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      MODEL_SERVER_URL: http://model-server:8080
+      LANGGRAPH_API_URL: http://langgraph-server:8000
+    depends_on:
+      minio:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      model-server:
+        condition: service_healthy
+      langgraph-server:
+        condition: service_started
+    networks:
+      - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # -- LangGraph API Server (official platform) --
+  langgraph-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.langgraph
+    ports:
+      - "8123:8000"
+    env_file:
+      - .env
+    environment:
+      # LangGraph Platform config
+      DATABASE_URI: postgresql://langgraph:langgraph@postgres:5432/langgraph
+      REDIS_URI: redis://redis:6379
+      # Application services
+      MINIO_ENDPOINT: http://minio:9000
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      MODEL_SERVER_URL: http://model-server:8080
+    depends_on:
+      minio:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      model-server:
+        condition: service_healthy
+    networks:
+      - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # -- Frontend Dev Server (Vite) --
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # Prevent overwriting node_modules
+    environment:
+      VITE_WS_URL: ws://localhost:8000/ws/chat
+    depends_on:
+      - fastapi
+    networks:
+      - rag-network
+
+volumes:
+  minio_data:
+  qdrant_data:
+  redis_data:
+  postgres_data:
+
+networks:
+  rag-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+      com.docker.network.bridge.name: br-rag
+      com.docker.network.bridge.enable_ip_masquerade: "true"

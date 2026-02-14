@@ -1,0 +1,32 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# System deps needed by httpx / qdrant-client
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure pip for better reliability
+RUN pip config set global.timeout 1000 && \
+    pip config set global.retries 5
+
+# Install LangGraph CLI and dependencies
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir "langgraph-cli[inmem]"
+
+# Copy only pyproject.toml first for better caching
+COPY pyproject.toml README.md ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    PYTHONDONTWRITEBYTECODE=1 pip install -e . || true
+
+# Copy the rest of the code
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    PYTHONDONTWRITEBYTECODE=1 pip install -e .
+
+# Expose LangGraph server port
+EXPOSE 8000
+
+# Run LangGraph server
+CMD ["langgraph", "dev", "--host", "0.0.0.0", "--port", "8000"]
