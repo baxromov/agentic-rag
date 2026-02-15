@@ -52,19 +52,17 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentInfo]
 
 
-class KnowledgeBaseResponse(BaseModel):
-    """Enhanced response with folder structure and metadata."""
+class DocumentDeleteResponse(BaseModel):
+    document_id: str
+    deleted: bool
 
+
+class KnowledgeBaseResponse(BaseModel):
     total_documents: int
     total_chunks: int
     total_size: int
     documents: list[DocumentMetadata]
     folder_tree: list[FolderNode]
-
-
-class DocumentDeleteResponse(BaseModel):
-    document_id: str
-    deleted: bool
 
 
 # -- Query --

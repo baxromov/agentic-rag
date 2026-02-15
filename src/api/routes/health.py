@@ -9,16 +9,16 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
-def health_check(
+async def health_check(
     minio: MinioService = Depends(get_minio_service),
     qdrant: QdrantService = Depends(get_qdrant_service),
 ):
     minio_ok = minio.health_check()
-    qdrant_ok = qdrant.health_check()
+    qdrant_ok = await qdrant.health_check()
     collection_info = None
     if qdrant_ok:
         try:
-            collection_info = qdrant.collection_info()
+            collection_info = await qdrant.collection_info()
         except Exception:
             pass
 

@@ -15,7 +15,7 @@ interface MessageProps {
 export const Message: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.role === "user";
 
-  const formatTime = (date: Date) => {
+  const formatDate = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
@@ -40,21 +40,13 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
               : "bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200"
           }`}
         >
-          <div
-            className={`prose max-w-none ${isUser ? "prose-invert" : "prose-slate"}`}
-          >
-            <p
-              className={`whitespace-pre-wrap ${isUser ? "text-white" : "text-slate-800"}`}
-            >
-              {message.content}
-            </p>
-          </div>
-          <div
-            className={`mt-2 text-xs ${isUser ? "text-blue-100" : "text-slate-500"}`}
-          >
-            {formatTime(message.timestamp)}
-          </div>
+          <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
+
+        {/* Timestamp */}
+        <span className="text-xs text-slate-500 dark:text-slate-400 mt-1 px-2">
+          {formatDate(message.timestamp)}
+        </span>
       </div>
 
       {isUser && (

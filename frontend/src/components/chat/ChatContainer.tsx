@@ -30,10 +30,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   } = useStreamingChat();
   const [showUpload, setShowUpload] = useState(false);
 
-  const handleSendMessage = async (message: string) => {
-    await sendMessage(message);
-  };
-
   return (
     <div className="flex flex-col h-screen bg-gradient-to-b from-slate-50 to-slate-100">
       {/* Header */}
@@ -88,30 +84,39 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </header>
 
-      {/* Upload Panel */}
+      {/* Messages */}
+      <MessageList
+        messages={messages}
+        isStreaming={isStreaming}
+        currentResponse={currentResponse}
+      />
+
+      {/* Input */}
+      <MessageInput
+        onSendMessage={sendMessage}
+        disabled={isStreaming}
+        onStop={stopStreaming}
+      />
+
+      {/* Upload Modal */}
       {showUpload && (
-        <div className="px-6 py-4 bg-blue-50 border-b border-blue-100 flex-shrink-0">
-          <FileUpload />
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="relative max-w-lg w-full mx-4">
+            <button
+              onClick={() => setShowUpload(false)}
+              className="absolute -top-10 right-0 text-white hover:text-slate-300"
+            >
+              Close ✕
+            </button>
+            <FileUpload
+              onUploadSuccess={(result) => {
+                console.log("Upload successful:", result);
+                setTimeout(() => setShowUpload(false), 2000);
+              }}
+            />
+          </div>
         </div>
       )}
-
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-hidden">
-        <MessageList
-          messages={messages}
-          isStreaming={isStreaming}
-          currentResponse={currentResponse}
-        />
-      </div>
-
-      {/* Message Input */}
-      <div className="border-t border-slate-200 bg-white p-4 flex-shrink-0">
-        <MessageInput
-          onSendMessage={handleSendMessage}
-          disabled={isStreaming}
-          onStop={stopStreaming}
-        />
-      </div>
     </div>
   );
 };

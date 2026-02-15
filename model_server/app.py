@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastembed import TextEmbedding
 from fastembed.rerank.cross_encoder import TextCrossEncoder
@@ -13,27 +15,27 @@ embedding: TextEmbedding | None = None
 reranker: TextCrossEncoder | None = None
 
 
-def get_embedding_model():
-    """Lazy load embedding model on first use."""
-    global embedding
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global embedding, reranker
+    embedding = TextEmbedding(model_name=EMBEDDING_MODEL)
+    reranker = TextCrossEncoder(model_name=RERANKER_MODEL)
+    yield
+
+
+app = FastAPI(title="Model Server", lifespan=lifespan)
+
+
+def get_embedding_model() -> TextEmbedding:
     if embedding is None:
-        print(f"Loading embedding model: {EMBEDDING_MODEL}")
-        embedding = TextEmbedding(model_name=EMBEDDING_MODEL)
-        print(f"Embedding model loaded successfully")
+        raise RuntimeError("Embedding model not loaded")
     return embedding
 
 
-def get_reranker_model():
-    """Lazy load reranker model on first use."""
-    global reranker
+def get_reranker_model() -> TextCrossEncoder:
     if reranker is None:
-        print(f"Loading reranker model: {RERANKER_MODEL}")
-        reranker = TextCrossEncoder(model_name=RERANKER_MODEL)
-        print(f"Reranker model loaded successfully")
+        raise RuntimeError("Reranker model not loaded")
     return reranker
-
-
-app = FastAPI(title="Model Server")
 
 
 # -- Request / Response schemas --
