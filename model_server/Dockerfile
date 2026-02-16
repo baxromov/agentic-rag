@@ -2,8 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Upgrade pip first
-RUN pip install --upgrade pip setuptools wheel
+# Install build dependencies for cross-platform compatibility
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip first with longer timeout and verbose output
+RUN pip config set global.timeout 1000 && \
+    pip config set global.retries 5 && \
+    pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Install dependencies with cache mount for faster rebuilds
 COPY requirements.txt .
