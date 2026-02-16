@@ -1,0 +1,49 @@
+Subject: URGENT: Network Access Needed for Development
+
+Hi IT Security Team,
+
+I'm blocked from development work due to firewall restrictions. Need access to install packages and build Docker containers.
+
+WHAT TO DO:
+Whitelist these 10 domains for HTTPS (port 443) outbound traffic:
+
+1. pypi.org
+2. files.pythonhosted.org
+3. registry-1.docker.io
+4. auth.docker.io
+5. production.cloudflare.docker.com
+6. huggingface.co
+7. cdn-lfs.huggingface.co
+8. registry.npmjs.org
+9. github.com
+10. raw.githubusercontent.com
+
+Plus DNS servers: 8.8.8.8 and 1.1.1.1 (UDP port 53)
+
+WHY:
+- pypi.org = Install Python packages (pip install)
+- registry-1.docker.io = Download Docker containers
+- huggingface.co = Download AI models
+- registry.npmjs.org = Install JavaScript packages
+- github.com = Clone code repositories
+
+SECURITY:
+✓ All encrypted HTTPS traffic
+✓ Official repositories only (Google, Docker, PyPI)
+✓ No incoming connections
+✓ Standard development tools
+
+WITHOUT ACCESS:
+Cannot install dependencies, build Docker images, or develop applications. Work is completely blocked.
+
+ALTERNATIVE:
+If you can't whitelist domains, please provide:
+- HTTP proxy: http://proxy.company.com:PORT
+- HTTPS proxy: http://proxy.company.com:PORT
+
+This is blocking critical development work. Please approve ASAP.
+
+Thanks,
+[Your Name]
+[Department]
+[Extension/Contact]

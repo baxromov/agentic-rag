@@ -1,0 +1,48 @@
+Title: Network Access Required - Development Environment Blocked
+
+Priority: High
+Type: Access Request
+Component: Firewall / Network Security
+
+Description:
+Development environment cannot function due to firewall blocking package repositories. Need whitelist approval.
+
+Requirements:
+Whitelist outbound HTTPS (port 443) to:
+- pypi.org (Python packages)
+- files.pythonhosted.org (Python packages CDN)
+- registry-1.docker.io (Docker Hub)
+- auth.docker.io (Docker authentication)
+- production.cloudflare.docker.com (Docker CDN)
+- huggingface.co (AI models)
+- cdn-lfs.huggingface.co (AI model downloads)
+- registry.npmjs.org (NPM packages)
+- github.com (Git repositories)
+- raw.githubusercontent.com (GitHub content)
+
+Whitelist DNS (UDP port 53) to:
+- 8.8.8.8 (Google DNS)
+- 1.1.1.1 (Cloudflare DNS)
+
+Business Impact:
+Cannot install dependencies or build applications. Development work 100% blocked.
+
+Security Notes:
+- All traffic encrypted (HTTPS/TLS)
+- Official repositories only
+- Outbound connections only
+- Industry standard tools
+
+Acceptance Criteria:
+1. Can run: curl https://pypi.org (returns 200 OK)
+2. Can run: docker pull python:3.12-slim (downloads successfully)
+3. Can run: pip install requests (installs successfully)
+
+Alternative Solution:
+If direct access denied, provide corporate proxy configuration:
+- HTTP_PROXY URL
+- HTTPS_PROXY URL
+- NO_PROXY settings
+
+Urgency: Critical - blocks all development
+Assignee: IT Security Team

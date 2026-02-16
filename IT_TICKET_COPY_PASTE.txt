@@ -1,0 +1,39 @@
+Subject: Network Access Request - Docker Development Environment
+
+Request Type: Firewall Whitelist / Proxy Exception
+
+PURPOSE:
+Enable Docker-based AI application development with Python, Node.js, and machine learning models.
+
+REQUIRED ACCESS (All HTTPS port 443):
+
+1. pypi.org
+2. files.pythonhosted.org
+3. registry-1.docker.io
+4. auth.docker.io
+5. production.cloudflare.docker.com
+6. huggingface.co
+7. cdn-lfs.huggingface.co
+8. registry.npmjs.org
+9. github.com
+10. raw.githubusercontent.com
+
+DNS (UDP port 53):
+- 8.8.8.8
+- 1.1.1.1
+
+BUSINESS JUSTIFICATION:
+Required for installing development dependencies and building containerized applications. Without access, cannot install Python packages (pip), pull Docker images, or download AI models. Blocks development work.
+
+SECURITY:
+- All traffic HTTPS encrypted
+- Official repositories only
+- No incoming connections
+- Outbound only
+
+URGENCY: High - blocking development work
+
+ALTERNATIVE:
+If direct access not possible, please provide corporate HTTP/HTTPS proxy settings.
+
+Thank you.
