@@ -34,7 +34,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-3">
+    <form
+      onSubmit={handleSubmit}
+      className="flex gap-3 p-4 border-t border-slate-800 bg-slate-900"
+    >
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
@@ -46,7 +49,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         }
         disabled={disabled}
         rows={3}
-        className="flex-1 px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        className="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-200 placeholder:text-slate-500"
       />
 
       {disabled ? (

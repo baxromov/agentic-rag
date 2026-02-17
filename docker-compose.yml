@@ -90,12 +90,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    environment:
+      SSL_VERIFY_DISABLE: "1"
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_DOWNLOAD_TIMEOUT: "600"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
-      interval: 10s
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8080/health'')"',
+        ]
+      interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 120s
     networks:
       - rag-network
 
@@ -116,6 +124,12 @@ services:
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       MODEL_SERVER_URL: http://model-server:8080
       LANGGRAPH_API_URL: http://langgraph-server:8000
+      # Disable SSL verification for corporate network
+      SSL_CERT_FILE: ""
+      REQUESTS_CA_BUNDLE: ""
+      CURL_CA_BUNDLE: ""
+      PYTHONHTTPSVERIFY: "0"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
     depends_on:
       minio:
         condition: service_healthy
@@ -152,6 +166,12 @@ services:
       QDRANT_URL: http://qdrant:6333
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       MODEL_SERVER_URL: http://model-server:8080
+      # Disable SSL verification for corporate network
+      SSL_CERT_FILE: ""
+      REQUESTS_CA_BUNDLE: ""
+      CURL_CA_BUNDLE: ""
+      PYTHONHTTPSVERIFY: "0"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
     depends_on:
       minio:
         condition: service_healthy
@@ -172,14 +192,15 @@ services:
   frontend:
     image: node:20-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host"
+    command: sh -c "npm config set strict-ssl false && npm install && npx vite --host"
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app
-      - /app/node_modules  # Prevent overwriting node_modules
+      - frontend_node_modules:/app/node_modules
     environment:
       VITE_WS_URL: ws://localhost:8000/ws/chat
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
     depends_on:
       - fastapi
     networks:
@@ -190,6 +211,7 @@ volumes:
   qdrant_data:
   redis_data:
   postgres_data:
+  frontend_node_modules:
 
 networks:
   rag-network:

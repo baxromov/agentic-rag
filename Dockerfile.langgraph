@@ -7,9 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure pip for better reliability
+# Configure pip for better reliability and corporate network SSL bypass
 RUN pip config set global.timeout 1000 && \
-    pip config set global.retries 5
+    pip config set global.retries 5 && \
+    pip config set global.trusted-host "pypi.org pypi.python.org files.pythonhosted.org download.pytorch.org"
 
 # Install LangGraph CLI and dependencies
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -17,13 +18,49 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Copy only pyproject.toml first for better caching
 COPY pyproject.toml README.md ./
+
+# Install CPU-only PyTorch first to avoid downloading 3GB+ CUDA packages
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     PYTHONDONTWRITEBYTECODE=1 pip install -e . || true
+
+# Download NLTK data at build time (bypass SSL for corporate proxy)
+RUN python -c "\
+import ssl; ssl._create_default_https_context = ssl._create_unverified_context; \
+import nltk; \
+nltk.download('averaged_perceptron_tagger_eng', download_dir='/usr/local/nltk_data'); \
+nltk.download('punkt_tab', download_dir='/usr/local/nltk_data')"
+ENV NLTK_DATA=/usr/local/nltk_data
 
 # Copy the rest of the code
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/pip \
     PYTHONDONTWRITEBYTECODE=1 pip install -e .
+
+# Disable SSL verification globally for corporate network
+ENV PYTHONHTTPSVERIFY=0
+COPY <<'EOF' /usr/local/lib/python3.12/site-packages/sitecustomize.py
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Patch httpx to disable SSL verification by default
+import httpx
+_orig_async_init = httpx.AsyncClient.__init__
+_orig_sync_init = httpx.Client.__init__
+
+def _patched_async_init(self, *args, **kwargs):
+    kwargs.setdefault("verify", False)
+    _orig_async_init(self, *args, **kwargs)
+
+def _patched_sync_init(self, *args, **kwargs):
+    kwargs.setdefault("verify", False)
+    _orig_sync_init(self, *args, **kwargs)
+
+httpx.AsyncClient.__init__ = _patched_async_init
+httpx.Client.__init__ = _patched_sync_init
+EOF
 
 # Expose LangGraph server port
 EXPOSE 8000

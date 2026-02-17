@@ -2,10 +2,10 @@
  * File upload component for document ingestion
  */
 
-import { useState } from 'react';
-import { ArrowUpTrayIcon } from '@heroicons/react/24/outline';
-import { Button } from './Button';
-import { ErrorAlert } from './ErrorAlert';
+import { useState } from "react";
+import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
+import { Button } from "./Button";
+import { ErrorAlert } from "./ErrorAlert";
 
 interface FileUploadProps {
   onUploadSuccess?: (result: {
@@ -32,7 +32,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
 
   const handleUpload = async () => {
     if (!file) {
-      setError('Please select a file first');
+      setError("Please select a file first");
       return;
     }
 
@@ -42,41 +42,43 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append("file", file);
 
-      const response = await fetch('http://localhost:8000/documents/upload', {
-        method: 'POST',
+      const response = await fetch("http://localhost:8000/documents/upload", {
+        method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Upload failed');
+        throw new Error(errorData.detail || "Upload failed");
       }
 
       const result = await response.json();
       setSuccess(
-        `Successfully uploaded "${result.source}" (${result.chunks_count} chunks created)`
+        `Successfully uploaded "${result.source}" (${result.chunks_count} chunks created)`,
       );
       setFile(null);
 
       // Reset file input
-      const fileInput = document.getElementById('file-upload') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
+      const fileInput = document.getElementById(
+        "file-upload",
+      ) as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
 
       if (onUploadSuccess) {
         onUploadSuccess(result);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <div className="w-full max-w-md mx-auto p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">
+    <div className="w-full max-w-md mx-auto p-4 bg-slate-900 rounded-lg border border-slate-800">
+      <h3 className="text-lg font-semibold text-slate-100 mb-4">
         Upload Document
       </h3>
 
@@ -84,7 +86,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       <div className="mb-4">
         <label
           htmlFor="file-upload"
-          className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
+          className="block text-sm font-medium text-slate-300 mb-2"
         >
           Choose File (PDF, DOCX, TXT)
         </label>
@@ -94,18 +96,17 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
           accept=".pdf,.docx,.txt,.md"
           onChange={handleFileChange}
           disabled={uploading}
-          className="block w-full text-sm text-slate-500 dark:text-slate-400
+          className="block w-full text-sm text-slate-400
             file:mr-4 file:py-2 file:px-4
             file:rounded-lg file:border-0
             file:text-sm file:font-semibold
-            file:bg-blue-50 file:text-blue-700
-            dark:file:bg-blue-900/20 dark:file:text-blue-300
-            hover:file:bg-blue-100 dark:hover:file:bg-blue-900/30
+            file:bg-blue-600/20 file:text-blue-400
+            hover:file:bg-blue-600/30
             file:cursor-pointer cursor-pointer
             disabled:opacity-50 disabled:cursor-not-allowed"
         />
         {file && (
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+          <p className="mt-2 text-sm text-slate-400">
             Selected: {file.name} ({(file.size / 1024).toFixed(2)} KB)
           </p>
         )}
@@ -148,21 +149,29 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       {/* Error Message */}
       {error && (
         <div className="mt-4">
-          <ErrorAlert type="error" message={error} onClose={() => setError(null)} />
+          <ErrorAlert
+            type="error"
+            message={error}
+            onClose={() => setError(null)}
+          />
         </div>
       )}
 
       {/* Success Message */}
       {success && (
         <div className="mt-4">
-          <ErrorAlert type="info" message={success} onClose={() => setSuccess(null)} />
+          <ErrorAlert
+            type="info"
+            message={success}
+            onClose={() => setSuccess(null)}
+          />
         </div>
       )}
 
       {/* Info */}
-      <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-        Supported formats: PDF, DOCX, TXT, Markdown. Documents will be chunked and
-        indexed for retrieval.
+      <p className="mt-4 text-xs text-slate-500">
+        Supported formats: PDF, DOCX, TXT, Markdown. Documents will be chunked
+        and indexed for retrieval.
       </p>
     </div>
   );

@@ -12,6 +12,7 @@ import { KnowledgeBaseDrive } from "./components/knowledge/KnowledgeBaseDrive";
 import { Analytics } from "./components/analytics/Analytics";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { SettingsPanel } from "./components/settings/SettingsPanel";
+import { UploadToast } from "./components/common/UploadToast";
 
 function AppContent() {
   const { loadSettings } = useAppStore();
@@ -23,7 +24,7 @@ function AppContent() {
   }, [loadSettings]);
 
   return (
-    <div className="flex h-screen bg-slate-100">
+    <div className="flex h-screen bg-slate-950">
       {/* Left Sidebar Navigation */}
       <Sidebar />
 
@@ -49,6 +50,9 @@ function AppContent() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+
+      {/* Global Upload Toast */}
+      <UploadToast />
     </div>
   );
 }

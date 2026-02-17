@@ -1,4 +1,23 @@
+import os
+import ssl
 from contextlib import asynccontextmanager
+
+# Disable SSL verification for corporate network proxy before any imports that use httpx
+if os.environ.get("SSL_VERIFY_DISABLE", "").lower() in ("1", "true"):
+    ssl._create_default_https_context = ssl._create_unverified_context
+    try:
+        import httpx
+
+        _original_client_init = httpx.Client.__init__
+
+        def _patched_client_init(self, *args, **kwargs):
+            kwargs["verify"] = False
+            kwargs["timeout"] = httpx.Timeout(600.0, connect=60.0)
+            _original_client_init(self, *args, **kwargs)
+
+        httpx.Client.__init__ = _patched_client_init
+    except ImportError:
+        pass
 
 from fastapi import FastAPI
 from fastembed import TextEmbedding

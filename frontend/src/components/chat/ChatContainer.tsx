@@ -31,52 +31,48 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const [showUpload, setShowUpload] = useState(false);
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+    <div className="flex flex-col h-screen bg-slate-950">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-200 shadow-sm flex-shrink-0">
+      <header className="flex items-center justify-between px-6 py-4 bg-slate-900 border-b border-slate-800 flex-shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Chat Assistant</h1>
-          <p className="text-sm text-slate-600">
+          <h1 className="text-2xl font-bold text-slate-100">Chat Assistant</h1>
+          <p className="text-sm text-slate-400">
             AI-powered knowledge assistant with RAG
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Upload Button */}
           <button
             onClick={() => setShowUpload(!showUpload)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors border border-blue-500/30"
             title="Upload document"
           >
             <ArrowUpTrayIcon className="w-5 h-5" />
             <span className="font-medium">Upload</span>
           </button>
 
-          {/* Clear Chat */}
           <button
             onClick={clearChat}
-            className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors border border-red-500/30"
             title="Clear chat"
           >
             <TrashIcon className="w-5 h-5" />
             <span className="font-medium">Clear</span>
           </button>
 
-          {/* Settings */}
           <button
             onClick={onOpenSettings}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors border border-slate-700"
             title="Settings"
           >
             <Cog6ToothIcon className="w-5 h-5" />
             <span className="font-medium">Settings</span>
           </button>
 
-          {/* Streaming Status */}
           {isStreaming && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-lg">
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-600/20 rounded-lg border border-green-500/30">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium text-green-700">
+              <span className="text-sm font-medium text-green-400">
                 Streaming...
               </span>
             </div>
@@ -100,13 +96,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {/* Upload Modal */}
       {showUpload && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="relative max-w-lg w-full mx-4">
             <button
               onClick={() => setShowUpload(false)}
-              className="absolute -top-10 right-0 text-white hover:text-slate-300"
+              className="absolute -top-10 right-0 text-slate-400 hover:text-slate-200"
             >
-              Close ✕
+              Close
             </button>
             <FileUpload
               onUploadSuccess={(result) => {

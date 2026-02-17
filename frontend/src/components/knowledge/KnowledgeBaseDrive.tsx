@@ -3,11 +3,12 @@
  * Features: folder creation, file preview, RAG search
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   DocumentTextIcon,
   FolderIcon,
   FolderPlusIcon,
+  FolderArrowDownIcon,
   MagnifyingGlassIcon,
   CloudArrowUpIcon,
   TrashIcon,
@@ -15,7 +16,10 @@ import {
   Squares2X2Icon,
   ListBulletIcon,
   XMarkIcon,
+  DocumentArrowUpIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/outline";
+import { useUploadStore } from "../../store/uploadStore";
 
 interface DocumentMetadata {
   document_id: string;
@@ -113,7 +117,11 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const uploadMenuRef = useRef<HTMLDivElement>(null);
+  const { addFiles, tasks, isProcessing } = useUploadStore();
 
   const fetchKnowledgeBase = async () => {
     try {
@@ -178,34 +186,46 @@ export const KnowledgeBaseDrive: React.FC = () => {
     }
   };
 
-  const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const response = await fetch("http://localhost:8000/documents/upload", {
-        method: "POST",
-        body: formData,
-      });
-      if (!response.ok) throw new Error("Upload failed");
-      await fetchKnowledgeBase();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    addFiles(Array.from(files));
+    event.target.value = "";
+    setShowUploadMenu(false);
   };
+
+  // Refresh knowledge base when uploads finish
+  const prevProcessingRef = useRef(isProcessing);
+  useEffect(() => {
+    if (
+      prevProcessingRef.current &&
+      !isProcessing &&
+      tasks.some((t) => t.status === "success")
+    ) {
+      fetchKnowledgeBase();
+    }
+    prevProcessingRef.current = isProcessing;
+  }, [isProcessing, tasks]);
+
+  // Close upload menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        uploadMenuRef.current &&
+        !uploadMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowUploadMenu(false);
+      }
+    };
+    if (showUploadMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showUploadMenu]);
 
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
-    // TODO: Backend API for folder creation
     alert(`Folder "${newFolderName}" creation - coming soon!`);
     setNewFolderName("");
     setShowNewFolder(false);
@@ -218,65 +238,108 @@ export const KnowledgeBaseDrive: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-white">
+      <div className="flex items-center justify-center h-screen bg-slate-950">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-200 rounded-full animate-spin border-t-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Loading...</p>
+          <div className="w-16 h-16 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-4"></div>
+          <p className="text-slate-400 font-medium">Loading...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white">
-      {/* Google Drive-style Header */}
-      <header className="border-b border-gray-200 bg-white px-6 py-4 flex-shrink-0">
+    <div className="h-screen flex flex-col bg-slate-950">
+      {/* Header */}
+      <header className="border-b border-slate-800 bg-slate-900 px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <FolderIcon className="w-8 h-8 text-blue-600" />
-            <h1 className="text-2xl font-semibold text-gray-900">
+            <FolderIcon className="w-8 h-8 text-blue-400" />
+            <h1 className="text-2xl font-semibold text-slate-100">
               Knowledge Base
             </h1>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Upload Button */}
-            <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors shadow-sm">
-              <CloudArrowUpIcon className="w-5 h-5" />
-              <span className="font-medium">
-                {uploading ? "Uploading..." : "Upload"}
-              </span>
+            {/* Upload Button with Dropdown */}
+            <div className="relative" ref={uploadMenuRef}>
+              <button
+                onClick={() => setShowUploadMenu(!showUploadMenu)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors shadow-sm"
+              >
+                <CloudArrowUpIcon className="w-5 h-5" />
+                <span className="font-medium">Upload</span>
+                <ChevronDownIcon className="w-4 h-4 ml-1" />
+              </button>
+              {showUploadMenu && (
+                <div className="absolute right-0 mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left"
+                  >
+                    <DocumentArrowUpIcon className="w-5 h-5 text-blue-400" />
+                    <div>
+                      <p className="text-sm font-medium">Upload Files</p>
+                      <p className="text-xs text-slate-400">
+                        Select one or more files
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => folderInputRef.current?.click()}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left border-t border-slate-700"
+                  >
+                    <FolderArrowDownIcon className="w-5 h-5 text-purple-400" />
+                    <div>
+                      <p className="text-sm font-medium">Upload Folder</p>
+                      <p className="text-xs text-slate-400">
+                        Upload entire folder
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              )}
               <input
+                ref={fileInputRef}
                 type="file"
-                onChange={handleFileUpload}
-                disabled={uploading}
+                multiple
+                onChange={handleFilesSelected}
                 className="hidden"
-                accept=".pdf,.docx,.xlsx,.txt"
+                accept=".pdf,.docx,.doc,.xlsx,.csv,.html,.htm,.md,.txt"
               />
-            </label>
+              <input
+                ref={folderInputRef}
+                type="file"
+                onChange={handleFilesSelected}
+                className="hidden"
+                {...({
+                  webkitdirectory: "",
+                  directory: "",
+                } as React.InputHTMLAttributes<HTMLInputElement>)}
+              />
+            </div>
 
             {/* New Folder Button */}
             <button
               onClick={() => setShowNewFolder(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
             >
               <FolderPlusIcon className="w-5 h-5" />
               <span className="font-medium">New Folder</span>
             </button>
 
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
               <button
                 onClick={() => setViewMode("grid")}
-                className={`p-2 rounded ${viewMode === "grid" ? "bg-white shadow-sm" : "hover:bg-gray-200"}`}
+                className={`p-2 rounded ${viewMode === "grid" ? "bg-slate-700 shadow-sm" : "hover:bg-slate-700"}`}
               >
-                <Squares2X2Icon className="w-5 h-5 text-gray-700" />
+                <Squares2X2Icon className="w-5 h-5 text-slate-300" />
               </button>
               <button
                 onClick={() => setViewMode("list")}
-                className={`p-2 rounded ${viewMode === "list" ? "bg-white shadow-sm" : "hover:bg-gray-200"}`}
+                className={`p-2 rounded ${viewMode === "list" ? "bg-slate-700 shadow-sm" : "hover:bg-slate-700"}`}
               >
-                <ListBulletIcon className="w-5 h-5 text-gray-700" />
+                <ListBulletIcon className="w-5 h-5 text-slate-300" />
               </button>
             </div>
           </div>
@@ -285,13 +348,13 @@ export const KnowledgeBaseDrive: React.FC = () => {
         {/* Search Bar */}
         <div className="flex items-center gap-3">
           <div className="flex-1 relative">
-            <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
             <input
               type="text"
               placeholder="Search in Drive"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-2.5 bg-gray-100 hover:bg-gray-200 focus:bg-white border border-transparent focus:border-blue-500 rounded-full outline-none transition-all"
+              className="w-full pl-12 pr-4 py-2.5 bg-slate-800 hover:bg-slate-750 focus:bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-full outline-none transition-all text-slate-200 placeholder:text-slate-500"
             />
           </div>
 
@@ -303,7 +366,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
               value={ragSearchQuery}
               onChange={(e) => setRagSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleRAGSearch()}
-              className="w-80 px-4 py-2.5 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 focus:border-purple-500 rounded-full outline-none transition-all"
+              className="w-80 px-4 py-2.5 bg-purple-900/20 border-2 border-purple-700/50 focus:border-purple-500 rounded-full outline-none transition-all text-slate-200 placeholder:text-slate-500"
             />
             <button
               onClick={handleRAGSearch}
@@ -317,21 +380,21 @@ export const KnowledgeBaseDrive: React.FC = () => {
       </header>
 
       {/* Stats Bar */}
-      <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6 text-sm text-gray-600 flex-shrink-0">
+      <div className="px-6 py-3 bg-slate-900/50 border-b border-slate-800 flex items-center gap-6 text-sm text-slate-400 flex-shrink-0">
         <div>
-          <span className="font-semibold text-gray-900">
+          <span className="font-semibold text-slate-200">
             {data?.total_documents || 0}
           </span>{" "}
           documents
         </div>
         <div>
-          <span className="font-semibold text-gray-900">
+          <span className="font-semibold text-slate-200">
             {data?.total_chunks || 0}
           </span>{" "}
           chunks
         </div>
         <div>
-          <span className="font-semibold text-gray-900">
+          <span className="font-semibold text-slate-200">
             {formatFileSize(data?.total_size || 0)}
           </span>{" "}
           storage used
@@ -342,36 +405,36 @@ export const KnowledgeBaseDrive: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-6">
         {/* RAG Search Results */}
         {ragResults.length > 0 && (
-          <div className="mb-6 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-2xl p-6">
+          <div className="mb-6 bg-purple-900/20 border-2 border-purple-700/50 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-slate-100">
                 RAG Search Results ({ragResults.length})
               </h2>
               <button
                 onClick={() => setRagResults([])}
-                className="p-2 hover:bg-white rounded-lg transition-colors"
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
               >
-                <XMarkIcon className="w-5 h-5 text-gray-600" />
+                <XMarkIcon className="w-5 h-5 text-slate-400" />
               </button>
             </div>
             <div className="space-y-3">
               {ragResults.map((result, idx) => (
                 <div
                   key={idx}
-                  className="bg-white rounded-xl p-4 border border-purple-100 shadow-sm"
+                  className="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-sm"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <DocumentTextIcon className="w-5 h-5 text-purple-600" />
-                      <span className="font-medium text-gray-900">
+                      <DocumentTextIcon className="w-5 h-5 text-purple-400" />
+                      <span className="font-medium text-slate-100">
                         {result.filename}
                       </span>
                     </div>
-                    <span className="text-sm font-semibold text-purple-600">
+                    <span className="text-sm font-semibold text-purple-400">
                       {Math.round(result.score * 100)}% match
                     </span>
                   </div>
-                  <p className="text-sm text-gray-700 line-clamp-2">
+                  <p className="text-sm text-slate-300 line-clamp-2">
                     {result.content}
                   </p>
                 </div>
@@ -386,7 +449,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
             {filteredDocs.map((doc) => (
               <div
                 key={doc.document_id}
-                className="group border border-gray-200 rounded-xl p-4 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer bg-white"
+                className="group border border-slate-800 rounded-xl p-4 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer bg-slate-900"
                 onClick={() => {
                   setSelectedDoc(doc);
                   setShowPreview(true);
@@ -395,10 +458,10 @@ export const KnowledgeBaseDrive: React.FC = () => {
                 <div className="flex flex-col items-center gap-3">
                   {getFileIcon(doc.file_type)}
                   <div className="w-full text-center">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-slate-200 truncate">
                       {doc.filename}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-slate-500 mt-1">
                       {formatFileSize(doc.size)}
                     </p>
                   </div>
@@ -409,18 +472,18 @@ export const KnowledgeBaseDrive: React.FC = () => {
                         setSelectedDoc(doc);
                         setShowPreview(true);
                       }}
-                      className="p-2 bg-blue-50 hover:bg-blue-100 rounded-lg"
+                      className="p-2 bg-blue-600/20 hover:bg-blue-600/30 rounded-lg"
                     >
-                      <EyeIcon className="w-4 h-4 text-blue-600" />
+                      <EyeIcon className="w-4 h-4 text-blue-400" />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(doc.document_id);
                       }}
-                      className="p-2 bg-red-50 hover:bg-red-100 rounded-lg"
+                      className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-lg"
                     >
-                      <TrashIcon className="w-4 h-4 text-red-600" />
+                      <TrashIcon className="w-4 h-4 text-red-400" />
                     </button>
                   </div>
                 </div>
@@ -428,35 +491,35 @@ export const KnowledgeBaseDrive: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200">
+          <div className="bg-slate-900 rounded-xl border border-slate-800">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="bg-slate-800/50 border-b border-slate-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                     Name
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                     Type
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                     Size
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                     Chunks
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                     Modified
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-800">
                 {filteredDocs.map((doc) => (
                   <tr
                     key={doc.document_id}
-                    className="hover:bg-gray-50 cursor-pointer"
+                    className="hover:bg-slate-800/50 cursor-pointer"
                     onClick={() => {
                       setSelectedDoc(doc);
                       setShowPreview(true);
@@ -467,23 +530,23 @@ export const KnowledgeBaseDrive: React.FC = () => {
                         <div className="flex-shrink-0">
                           {getFileIcon(doc.file_type)}
                         </div>
-                        <span className="text-sm font-medium text-gray-900">
+                        <span className="text-sm font-medium text-slate-200">
                           {doc.filename}
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-full uppercase">
+                      <span className="px-3 py-1 bg-slate-800 text-slate-300 text-xs font-medium rounded-full uppercase">
                         {doc.file_type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
                       {formatFileSize(doc.size)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
                       {doc.chunks_count}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
                       {formatDate(doc.last_modified)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
@@ -494,18 +557,18 @@ export const KnowledgeBaseDrive: React.FC = () => {
                             setSelectedDoc(doc);
                             setShowPreview(true);
                           }}
-                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="p-2 hover:bg-blue-600/20 rounded-lg transition-colors"
                         >
-                          <EyeIcon className="w-4 h-4 text-blue-600" />
+                          <EyeIcon className="w-4 h-4 text-blue-400" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDelete(doc.document_id);
                           }}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-2 hover:bg-red-600/20 rounded-lg transition-colors"
                         >
-                          <TrashIcon className="w-4 h-4 text-red-600" />
+                          <TrashIcon className="w-4 h-4 text-red-400" />
                         </button>
                       </div>
                     </td>
@@ -517,7 +580,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
         )}
 
         {filteredDocs.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+          <div className="flex flex-col items-center justify-center h-64 text-slate-500">
             <FolderIcon className="w-20 h-20 mb-4" />
             <p className="text-lg font-medium">No documents found</p>
           </div>
@@ -526,27 +589,27 @@ export const KnowledgeBaseDrive: React.FC = () => {
 
       {/* File Preview Modal */}
       {showPreview && selectedDoc && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-6 border-b border-slate-800">
+              <h2 className="text-xl font-semibold text-slate-100">
                 Document Preview
               </h2>
               <button
                 onClick={() => setShowPreview(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
               >
-                <XMarkIcon className="w-6 h-6 text-gray-600" />
+                <XMarkIcon className="w-6 h-6 text-slate-400" />
               </button>
             </div>
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
               <div className="flex items-center gap-4 mb-6">
                 {getFileIcon(selectedDoc.file_type)}
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
+                  <h3 className="text-lg font-semibold text-slate-100">
                     {selectedDoc.filename}
                   </h3>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-slate-400">
                     {selectedDoc.file_type.toUpperCase()} •{" "}
                     {formatFileSize(selectedDoc.size)}
                   </p>
@@ -554,15 +617,15 @@ export const KnowledgeBaseDrive: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-xs text-gray-500 mb-1">Chunks</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                <div className="bg-slate-800 rounded-lg p-4">
+                  <p className="text-xs text-slate-500 mb-1">Chunks</p>
+                  <p className="text-2xl font-semibold text-slate-100">
                     {selectedDoc.chunks_count}
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-xs text-gray-500 mb-1">Language</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                <div className="bg-slate-800 rounded-lg p-4">
+                  <p className="text-xs text-slate-500 mb-1">Language</p>
+                  <p className="text-2xl font-semibold text-slate-100">
                     {selectedDoc.language || "Auto"}
                   </p>
                 </div>
@@ -570,31 +633,31 @@ export const KnowledgeBaseDrive: React.FC = () => {
 
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">
+                  <p className="text-sm font-medium text-slate-500">
                     Document ID
                   </p>
-                  <p className="text-sm font-mono text-gray-900">
+                  <p className="text-sm font-mono text-slate-200">
                     {selectedDoc.document_id}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Created</p>
-                  <p className="text-sm text-gray-900">
+                  <p className="text-sm font-medium text-slate-500">Created</p>
+                  <p className="text-sm text-slate-200">
                     {formatDate(selectedDoc.created_at)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Modified</p>
-                  <p className="text-sm text-gray-900">
+                  <p className="text-sm font-medium text-slate-500">Modified</p>
+                  <p className="text-sm text-slate-200">
                     {formatDate(selectedDoc.last_modified)}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-6 pt-6 border-t border-gray-200">
+              <div className="mt-6 pt-6 border-t border-slate-800">
                 <button
                   onClick={() => handleDelete(selectedDoc.document_id)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors font-medium"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors font-medium border border-red-500/30"
                 >
                   <TrashIcon className="w-5 h-5" />
                   Delete Document
@@ -607,9 +670,9 @@ export const KnowledgeBaseDrive: React.FC = () => {
 
       {/* New Folder Modal */}
       {showNewFolder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-semibold text-slate-100 mb-4">
               New Folder
             </h2>
             <input
@@ -618,13 +681,13 @@ export const KnowledgeBaseDrive: React.FC = () => {
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
-              className="w-full px-4 py-3 border-2 border-gray-300 focus:border-blue-500 rounded-lg outline-none mb-4"
+              className="w-full px-4 py-3 border-2 border-slate-700 focus:border-blue-500 rounded-lg outline-none mb-4 bg-slate-800 text-slate-200 placeholder:text-slate-500"
               autoFocus
             />
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowNewFolder(false)}
-                className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
+                className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition-colors"
               >
                 Cancel
               </button>

@@ -1,4 +1,5 @@
 """Input/output guardrails for security and safety."""
+
 import re
 from typing import Any
 
@@ -100,8 +101,9 @@ def detect_prompt_injection(text: str) -> bool:
             return True
 
     # Check for excessive special characters (might indicate encoding attacks)
-    special_char_ratio = len(re.findall(r"[^a-zA-Z0-9\s.,!?-]", text)) / len(text)
-    if special_char_ratio > 0.3:
+    # Use \w to support Unicode letters (Cyrillic, Latin, etc.)
+    special_char_ratio = len(re.findall(r"[^\w\s.,!?'\"-]", text)) / max(len(text), 1)
+    if special_char_ratio > 0.4:
         return True
 
     return False

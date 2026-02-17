@@ -25,7 +25,6 @@ export const MessageList: React.FC<MessageListProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, currentResponse]);
@@ -49,23 +48,23 @@ export const MessageList: React.FC<MessageListProps> = ({
               />
             </svg>
           </div>
-          <h2 className="text-3xl font-bold text-slate-900 mb-3">
+          <h2 className="text-3xl font-bold text-slate-100 mb-3">
             Welcome to RAG Assistant
           </h2>
-          <p className="text-slate-600 max-w-md text-lg">
+          <p className="text-slate-400 max-w-md text-lg">
             Ask me anything! I use hybrid search with retrieval, reranking, and
             intelligent grading to find the most relevant information from your
             knowledge base.
           </p>
           <div className="mt-6 flex gap-3">
-            <div className="px-4 py-2 bg-blue-50 rounded-lg text-sm text-blue-700">
-              💡 Multilingual Support
+            <div className="px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-lg text-sm text-blue-400">
+              Multilingual Support
             </div>
-            <div className="px-4 py-2 bg-green-50 rounded-lg text-sm text-green-700">
-              🔍 Smart Search
+            <div className="px-4 py-2 bg-green-600/20 border border-green-500/30 rounded-lg text-sm text-green-400">
+              Smart Search
             </div>
-            <div className="px-4 py-2 bg-purple-50 rounded-lg text-sm text-purple-700">
-              ⚡ Real-time Streaming
+            <div className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg text-sm text-purple-400">
+              Real-time Streaming
             </div>
           </div>
         </div>
@@ -75,7 +74,6 @@ export const MessageList: React.FC<MessageListProps> = ({
             <Message key={idx} message={message} />
           ))}
 
-          {/* Show current streaming response */}
           {isStreaming && currentResponse && (
             <div className="flex gap-3">
               <div className="flex-shrink-0">
@@ -96,9 +94,9 @@ export const MessageList: React.FC<MessageListProps> = ({
                 </div>
               </div>
               <div className="flex-1">
-                <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl px-5 py-4 shadow-sm border border-slate-200">
-                  <div className="prose prose-slate max-w-none">
-                    <p className="text-slate-800 whitespace-pre-wrap">
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 shadow-sm">
+                  <div className="prose prose-invert max-w-none">
+                    <p className="text-slate-200 whitespace-pre-wrap">
                       {currentResponse}
                     </p>
                   </div>

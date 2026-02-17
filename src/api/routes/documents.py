@@ -53,9 +53,15 @@ def list_documents(minio: MinioService = Depends(get_minio_service)):
 async def delete_document(
     document_id: str,
     pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
+    minio: MinioService = Depends(get_minio_service),
 ):
     try:
+        # Delete vectors from Qdrant
         await pipeline.delete_document(document_id)
+        # Delete all files from MinIO for this document
+        minio_objects = minio.list_objects(prefix=f"{document_id}/")
+        for obj in minio_objects:
+            minio.delete(obj["key"])
         return DocumentDeleteResponse(document_id=document_id, deleted=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
