@@ -16,7 +16,7 @@ export const Sidebar: React.FC = () => {
     { id: "home" as const, label: "Dashboard", icon: HomeIcon, path: "/" },
     {
       id: "chat" as const,
-      label: "Chat Assistant",
+      label: "HR Assistant",
       icon: ChatBubbleLeftRightIcon,
       path: "/chat",
     },
@@ -49,8 +49,8 @@ export const Sidebar: React.FC = () => {
             <DocumentTextIcon className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-white font-bold text-lg">RAG System</h1>
-            <p className="text-slate-400 text-xs">Admin Panel</p>
+            <h1 className="text-white font-bold text-lg">HR Assistant</h1>
+            <p className="text-slate-400 text-xs">Ipoteka Bank</p>
           </div>
         </div>
       </div>
@@ -91,8 +91,8 @@ export const Sidebar: React.FC = () => {
             U
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium truncate">User</p>
-            <p className="text-slate-400 text-xs">Administrator</p>
+            <p className="text-white text-sm font-medium truncate">Employee</p>
+            <p className="text-slate-400 text-xs">Ipoteka Bank</p>
           </div>
         </div>
       </div>

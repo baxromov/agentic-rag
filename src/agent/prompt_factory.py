@@ -199,9 +199,9 @@ def create_dynamic_system_prompt(
 
     # Build base prompt based on language
     base_prompts = {
-        "en": "You are a helpful multilingual assistant.",
-        "ru": "Вы полезный многоязычный помощник.",
-        "uz": "Siz foydali ko'p tilli yordamchisiz.",
+        "en": "You are Ipoteka Bank's HR Policy Assistant. You help employees find answers about company policies, internal rules, and labor regulations.",
+        "ru": "Вы HR-ассистент Ипотека Банка. Вы помогаете сотрудникам находить ответы о политиках компании, внутренних правилах и трудовом регулировании.",
+        "uz": "Siz Ipoteka Bankning HR siyosat yordamchisisiz. Siz xodimlarga kompaniya siyosatlari, ichki qoidalar va mehnat qonunchiligi haqida javob topishda yordam berasiz.",
     }
 
     prompt_parts = [base_prompts.get(detected_language, base_prompts["en"])]
@@ -232,17 +232,17 @@ def create_dynamic_system_prompt(
         dominant_type = max(doc_types.items(), key=lambda x: x[1])[0]
         if dominant_type == "pdf" and doc_types.get("pdf", 0) == len(documents):
             doc_instructions = {
-                "en": "You're analyzing research documents. Provide precise citations with page numbers.",
-                "ru": "Вы анализируете исследовательские документы. Указывайте точные ссылки с номерами страниц.",
-                "uz": "Siz tadqiqot hujjatlarini tahlil qilyapsiz. Sahifa raqamlari bilan aniq havolalar bering.",
+                "en": "You're analyzing company policy documents. Provide precise citations with document names and page numbers.",
+                "ru": "Вы анализируете нормативные документы компании. Указывайте точные ссылки с названиями документов и номерами страниц.",
+                "uz": "Siz kompaniya normativ hujjatlarini tahlil qilyapsiz. Hujjat nomlari va sahifa raqamlari bilan aniq havolalar bering.",
             }
             prompt_parts.append(doc_instructions.get(detected_language, doc_instructions["en"]))
 
     # Add grounding instruction
     grounding_instructions = {
-        "en": "Answer based ONLY on the provided context documents. If the context doesn't contain enough information, say so.",
-        "ru": "Отвечайте ТОЛЬКО на основе предоставленных контекстных документов. Если контекста недостаточно, укажите это.",
-        "uz": "FAQAT taqdim etilgan kontekst hujjatlari asosida javob bering. Agar kontekst yetarli bo'lmasa, buni ayting.",
+        "en": "Answer based ONLY on the provided company policy documents. If the documents do not contain enough information, say: 'I could not find this information in the company's policy documents. Please contact the HR department for assistance.'",
+        "ru": "Отвечайте ТОЛЬКО на основе предоставленных нормативных документов компании. Если в документах нет достаточной информации, скажите: 'Я не нашёл эту информацию в нормативных документах компании. Пожалуйста, обратитесь в отдел кадров за помощью.'",
+        "uz": "FAQAT taqdim etilgan kompaniya normativ hujjatlari asosida javob bering. Agar hujjatlarda yetarli ma'lumot bo'lmasa, ayting: 'Men kompaniya normativ hujjatlaridan bu ma'lumotni topa olmadim. Iltimos, yordam uchun HR bo'limiga murojaat qiling.'",
     }
     prompt_parts.append(grounding_instructions.get(detected_language, grounding_instructions["en"]))
 

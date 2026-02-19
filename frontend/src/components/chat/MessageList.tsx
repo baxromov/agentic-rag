@@ -16,12 +16,14 @@ interface MessageListProps {
   messages: MessageType[];
   isStreaming: boolean;
   currentResponse: string;
+  onSuggestionClick?: (message: string) => void;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
   messages,
   isStreaming,
   currentResponse,
+  onSuggestionClick,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -49,23 +51,44 @@ export const MessageList: React.FC<MessageListProps> = ({
             </svg>
           </div>
           <h2 className="text-3xl font-bold text-slate-100 mb-3">
-            Welcome to RAG Assistant
+            HR Policy Assistant
           </h2>
           <p className="text-slate-400 max-w-md text-lg">
-            Ask me anything! I use hybrid search with retrieval, reranking, and
-            intelligent grading to find the most relevant information from your
-            knowledge base.
+            I can help you find answers about Ipoteka Bank's company policies,
+            internal rules, leave policies, benefits, and more. Ask your
+            question in any language!
           </p>
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-wrap gap-3 justify-center">
             <div className="px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-lg text-sm text-blue-400">
-              Multilingual Support
+              Company Policies
             </div>
             <div className="px-4 py-2 bg-green-600/20 border border-green-500/30 rounded-lg text-sm text-green-400">
-              Smart Search
+              Leave & Benefits
             </div>
             <div className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg text-sm text-purple-400">
-              Real-time Streaming
+              Internal Regulations
             </div>
+          </div>
+
+          {/* Example questions */}
+          <div className="mt-6 space-y-2 max-w-lg">
+            <p className="text-slate-500 text-sm font-medium mb-3">
+              Try asking:
+            </p>
+            {[
+              "How many vacation days do I get per year?",
+              "What is the dress code policy?",
+              "How do I request time off?",
+              "What are the working hours?",
+            ].map((question, idx) => (
+              <button
+                key={idx}
+                onClick={() => onSuggestionClick?.(question)}
+                className="w-full text-left px-4 py-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600 rounded-xl text-sm text-slate-300 hover:text-slate-100 transition-all"
+              >
+                {question}
+              </button>
+            ))}
           </div>
         </div>
       ) : (

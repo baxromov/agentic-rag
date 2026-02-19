@@ -88,3 +88,33 @@ docker compose exec -T fastapi python -m pytest tests/
 - **Upload documents**: Use Knowledge Base page UI (supports files + folders)
 - **Check health**: `curl http://localhost:8000/health`
 - **View logs**: `docker compose logs fastapi --tail=50` or `langgraph-server`
+
+## Agent Skills (from ~/.agent/skills/)
+
+Community skill files that provide domain expertise. Read the relevant SKILL.md on-demand when the task matches.
+
+### Core Skills (always consider for this project)
+- **RAG/Retrieval tasks**: Read `~/.agent/skills/skills/rag-engineer/SKILL.md` — chunking, embeddings, hybrid search, retrieval optimization
+- **RAG implementation**: Read `~/.agent/skills/skills/rag-implementation/SKILL.md` — document Q&A systems, knowledge-grounded AI
+- **LangGraph/Agent tasks**: Read `~/.agent/skills/skills/langgraph/SKILL.md` — graph construction, state management, ReAct patterns
+- **FastAPI/Backend tasks**: Read `~/.agent/skills/skills/fastapi-pro/SKILL.md` — async APIs, WebSockets, Pydantic patterns
+- **Vector DB/Qdrant tasks**: Read `~/.agent/skills/skills/vector-database-engineer/SKILL.md` — Qdrant, semantic search, index tuning
+- **Embedding tasks**: Read `~/.agent/skills/skills/embedding-strategies/SKILL.md` — model selection, chunking strategies
+
+### Supporting Skills (read when relevant)
+- **Agent architecture**: Read `~/.agent/skills/skills/ai-agents-architect/SKILL.md` — tool use, memory systems, multi-agent orchestration
+- **Prompt optimization**: Read `~/.agent/skills/skills/prompt-engineer/SKILL.md` — prompt frameworks (CoT, RISEN, RODES)
+- **Database design**: Read `~/.agent/skills/skills/database-architect/SKILL.md` — schema design, indexing, migrations
+- **Backend architecture**: Read `~/.agent/skills/skills/backend-architect/SKILL.md` — API design, distributed systems
+- **Docker/DevOps**: Read `~/.agent/skills/skills/docker-expert/SKILL.md` — Docker Compose, multi-stage builds, container optimization
+- **LangChain**: Read `~/.agent/skills/skills/langchain-architecture/SKILL.md` — LangChain framework patterns
+
+### Frontend Skills (read for UI work)
+- **React**: Read `~/.agent/skills/skills/react-best-practices/SKILL.md`
+- **TypeScript**: Read `~/.agent/skills/skills/typescript-pro/SKILL.md`
+- **Tailwind**: Read `~/.agent/skills/skills/tailwind-patterns/SKILL.md`
+
+### Usage
+- Read the skill file BEFORE starting work on a matching task
+- Skills contain patterns, anti-patterns, and sharp edges to avoid
+- Check the "Related Skills" section at the bottom of each skill for additional relevant skills

@@ -14,6 +14,7 @@ import {
   ClockIcon,
   CalendarIcon,
 } from "@heroicons/react/24/outline";
+import { API_BASE_URL } from "../../config/api";
 
 interface DocumentMetadata {
   document_id: string;
@@ -209,9 +210,7 @@ export const KnowledgeBase: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(
-        "http://localhost:8000/documents/knowledge-base",
-      );
+      const response = await fetch(`${API_BASE_URL}/documents/knowledge-base`);
       if (!response.ok) throw new Error("Failed to fetch knowledge base");
       const result = await response.json();
       setData(result);
@@ -230,7 +229,7 @@ export const KnowledgeBase: React.FC = () => {
     if (!confirm("Are you sure you want to delete this document?")) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/documents/${docId}`, {
+      const response = await fetch(`${API_BASE_URL}/documents/${docId}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete document");
@@ -255,7 +254,7 @@ export const KnowledgeBase: React.FC = () => {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000/documents/upload", {
+      const response = await fetch(`${API_BASE_URL}/documents/upload`, {
         method: "POST",
         body: formData,
       });

@@ -45,7 +45,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         placeholder={
           disabled
             ? "AI is responding..."
-            : "Type your message... (Shift+Enter for new line)"
+            : "Ask about company policies... (Shift+Enter for new line)"
         }
         disabled={disabled}
         rows={3}

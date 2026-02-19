@@ -16,15 +16,17 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
 
-    # CORS middleware for development (allows frontend dev server)
+    # CORS middleware — allows localhost + any LAN IP so the app works on local network
+    cors_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",  # Vite dev server
-            "http://127.0.0.1:5173",
-            "http://localhost:8000",  # Production same-origin
-            "http://127.0.0.1:8000",
-        ],
+        allow_origins=cors_origins,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

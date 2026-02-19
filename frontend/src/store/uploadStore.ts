@@ -1,10 +1,21 @@
-import { create } from 'zustand';
+import { create } from "zustand";
+import { API_BASE_URL } from "../config/api";
 
-export type UploadStatus = 'pending' | 'uploading' | 'success' | 'error';
+export type UploadStatus = "pending" | "uploading" | "success" | "error";
 
 const ACCEPTED_EXTENSIONS = [
-  '.pdf', '.docx', '.doc', '.xlsx', '.csv', '.html', '.htm', '.md', '.txt',
+  ".pdf",
+  ".docx",
+  ".doc",
+  ".xlsx",
+  ".csv",
+  ".html",
+  ".htm",
+  ".md",
+  ".txt",
 ];
+
+const STORAGE_KEY = "upload-tasks-v1";
 
 export interface UploadTask {
   id: string;
@@ -14,6 +25,58 @@ export interface UploadTask {
   status: UploadStatus;
   error?: string;
   chunksCount?: number;
+}
+
+/** Serializable subset of UploadTask (File objects can't be persisted) */
+interface PersistedTask {
+  id: string;
+  filename: string;
+  size: number;
+  status: UploadStatus;
+  error?: string;
+  chunksCount?: number;
+}
+
+function saveTasks(tasks: UploadTask[]) {
+  try {
+    const serializable: PersistedTask[] = tasks.map(
+      ({ id, filename, size, status, error, chunksCount }) => ({
+        id,
+        filename,
+        size,
+        status,
+        error,
+        chunksCount,
+      }),
+    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
+  } catch {
+    // localStorage full or unavailable
+  }
+}
+
+function loadTasks(): UploadTask[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const persisted: PersistedTask[] = JSON.parse(raw);
+
+    // Restore tasks: pending/uploading become "error" (interrupted) since File is lost
+    return persisted.map((t) => ({
+      ...t,
+      file: null as unknown as File, // File object is lost after refresh
+      status:
+        t.status === "pending" || t.status === "uploading"
+          ? ("error" as UploadStatus)
+          : t.status,
+      error:
+        t.status === "pending" || t.status === "uploading"
+          ? "Upload interrupted — please re-upload this file"
+          : t.error,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 interface UploadState {
@@ -27,8 +90,10 @@ interface UploadState {
   clearSkipped: () => void;
 }
 
+const restoredTasks = loadTasks();
+
 export const useUploadStore = create<UploadState>((set, get) => ({
-  tasks: [],
+  tasks: restoredTasks,
   isProcessing: false,
   skippedFiles: [],
 
@@ -37,14 +102,14 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     const skipped: string[] = [];
 
     for (const file of files) {
-      const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+      const ext = "." + file.name.split(".").pop()?.toLowerCase();
       if (ACCEPTED_EXTENSIONS.includes(ext)) {
         accepted.push({
           id: crypto.randomUUID(),
           file,
           filename: file.name,
           size: file.size,
-          status: 'pending',
+          status: "pending",
         });
       } else {
         skipped.push(file.name);
@@ -56,10 +121,17 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       return;
     }
 
-    set((s) => ({
-      tasks: [...s.tasks, ...accepted],
-      skippedFiles: skipped.length > 0 ? [...s.skippedFiles, ...skipped] : s.skippedFiles,
-    }));
+    set((s) => {
+      const newTasks = [...s.tasks, ...accepted];
+      saveTasks(newTasks);
+      return {
+        tasks: newTasks,
+        skippedFiles:
+          skipped.length > 0
+            ? [...s.skippedFiles, ...skipped]
+            : s.skippedFiles,
+      };
+    });
 
     // Auto-start queue if not already processing
     if (!get().isProcessing) {
@@ -68,14 +140,24 @@ export const useUploadStore = create<UploadState>((set, get) => ({
   },
 
   removeTask: (id: string) => {
-    set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
+    set((s) => {
+      const newTasks = s.tasks.filter((t) => t.id !== id);
+      saveTasks(newTasks);
+      return { tasks: newTasks };
+    });
   },
 
   clearCompleted: () => {
-    set((s) => ({
-      tasks: s.tasks.filter((t) => t.status !== 'success' && t.status !== 'error'),
-      skippedFiles: [],
-    }));
+    set((s) => {
+      const newTasks = s.tasks.filter(
+        (t) => t.status !== "success" && t.status !== "error",
+      );
+      saveTasks(newTasks);
+      return {
+        tasks: newTasks,
+        skippedFiles: [],
+      };
+    });
   },
 
   clearSkipped: () => {
@@ -90,47 +172,59 @@ async function processQueue() {
 
   while (true) {
     const { tasks } = store.getState();
-    const next = tasks.find((t) => t.status === 'pending');
+    const next = tasks.find((t) => t.status === "pending");
     if (!next) break;
 
     // Mark as uploading
-    store.setState({
-      tasks: store.getState().tasks.map((t) =>
-        t.id === next.id ? { ...t, status: 'uploading' as UploadStatus } : t
-      ),
-    });
+    const uploadingTasks = store
+      .getState()
+      .tasks.map((t) =>
+        t.id === next.id ? { ...t, status: "uploading" as UploadStatus } : t,
+      );
+    store.setState({ tasks: uploadingTasks });
+    saveTasks(uploadingTasks);
 
     try {
       const formData = new FormData();
-      formData.append('file', next.file);
+      formData.append("file", next.file);
 
-      const response = await fetch('http://localhost:8000/documents/upload', {
-        method: 'POST',
+      const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+        method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Upload failed' }));
+        const err = await response
+          .json()
+          .catch(() => ({ detail: "Upload failed" }));
         throw new Error(err.detail || `HTTP ${response.status}`);
       }
 
       const result = await response.json();
 
-      store.setState({
-        tasks: store.getState().tasks.map((t) =>
-          t.id === next.id
-            ? { ...t, status: 'success' as UploadStatus, chunksCount: result.chunks_count }
-            : t
-        ),
-      });
+      const successTasks = store.getState().tasks.map((t) =>
+        t.id === next.id
+          ? {
+              ...t,
+              status: "success" as UploadStatus,
+              chunksCount: result.chunks_count,
+            }
+          : t,
+      );
+      store.setState({ tasks: successTasks });
+      saveTasks(successTasks);
     } catch (err) {
-      store.setState({
-        tasks: store.getState().tasks.map((t) =>
-          t.id === next.id
-            ? { ...t, status: 'error' as UploadStatus, error: err instanceof Error ? err.message : 'Upload failed' }
-            : t
-        ),
-      });
+      const errorTasks = store.getState().tasks.map((t) =>
+        t.id === next.id
+          ? {
+              ...t,
+              status: "error" as UploadStatus,
+              error: err instanceof Error ? err.message : "Upload failed",
+            }
+          : t,
+      );
+      store.setState({ tasks: errorTasks });
+      saveTasks(errorTasks);
     }
   }
 

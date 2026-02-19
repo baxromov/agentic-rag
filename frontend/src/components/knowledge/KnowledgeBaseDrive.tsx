@@ -20,6 +20,7 @@ import {
   ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import { useUploadStore } from "../../store/uploadStore";
+import { API_BASE_URL } from "../../config/api";
 
 interface DocumentMetadata {
   document_id: string;
@@ -126,9 +127,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const fetchKnowledgeBase = async () => {
     try {
       setLoading(true);
-      const response = await fetch(
-        "http://localhost:8000/documents/knowledge-base",
-      );
+      const response = await fetch(`${API_BASE_URL}/documents/knowledge-base`);
       if (!response.ok) throw new Error("Failed to fetch knowledge base");
       const result = await response.json();
       console.log("Fetched knowledge base data:", result);
@@ -150,7 +149,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
 
     setRagSearching(true);
     try {
-      const response = await fetch("http://localhost:8000/query", {
+      const response = await fetch(`${API_BASE_URL}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -172,7 +171,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
     if (!confirm("Are you sure you want to delete this document?")) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/documents/${docId}`, {
+      const response = await fetch(`${API_BASE_URL}/documents/${docId}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete document");

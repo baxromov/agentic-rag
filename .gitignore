@@ -50,3 +50,4 @@ htmlcov/
 *.h5
 *.pkl
 .cache/
+.agent

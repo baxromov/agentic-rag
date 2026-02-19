@@ -1,23 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(test:*)",
-      "WebFetch(domain:qdrant.tech)",
-      "WebFetch(domain:python-client.qdrant.tech)",
-      "WebSearch",
-      "mcp__docs-langchain__SearchDocsByLangChain",
-      "Bash(npm create:*)",
-      "Bash(npm install:*)",
       "mcp__acp__Bash",
+      "mcp__acp__Write",
       "mcp__acp__Edit",
-      "mcp__acp__Write"
+      "Bash(git add:*)"
     ]
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true
   }
 }

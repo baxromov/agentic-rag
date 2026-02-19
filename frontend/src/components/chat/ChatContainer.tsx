@@ -35,9 +35,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 bg-slate-900 border-b border-slate-800 flex-shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Chat Assistant</h1>
+          <h1 className="text-2xl font-bold text-slate-100">HR Assistant</h1>
           <p className="text-sm text-slate-400">
-            AI-powered knowledge assistant with RAG
+            Ask questions about company policies and internal regulations
           </p>
         </div>
 
@@ -85,6 +85,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         messages={messages}
         isStreaming={isStreaming}
         currentResponse={currentResponse}
+        onSuggestionClick={sendMessage}
       />
 
       {/* Input */}

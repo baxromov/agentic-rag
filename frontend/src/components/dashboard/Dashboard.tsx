@@ -7,6 +7,7 @@ import {
   ClockIcon,
   ArrowTrendingUpIcon,
 } from "@heroicons/react/24/outline";
+import { API_BASE_URL } from "../../config/api";
 
 interface DashboardStats {
   total_documents: number;
@@ -22,7 +23,7 @@ export const Dashboard: React.FC = () => {
     const fetchStats = async () => {
       try {
         const response = await fetch(
-          "http://localhost:8000/documents/knowledge-base",
+          `${API_BASE_URL}/documents/knowledge-base`,
         );
         const data = await response.json();
         setStats({
@@ -70,7 +71,7 @@ export const Dashboard: React.FC = () => {
       change: "+5%",
     },
     {
-      title: "Active Sessions",
+      title: "Employee Queries",
       value: "24",
       icon: ChatBubbleLeftRightIcon,
       gradient: "from-orange-500 to-orange-600",
@@ -95,7 +96,7 @@ export const Dashboard: React.FC = () => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-100 mb-2">Dashboard</h1>
           <p className="text-slate-400">
-            Welcome back! Here's what's happening with your RAG system.
+            Welcome back! Here's an overview of the HR knowledge base.
           </p>
         </div>
 
@@ -143,11 +144,11 @@ export const Dashboard: React.FC = () => {
             <div className="space-y-3">
               <button className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-md">
                 <DocumentTextIcon className="w-5 h-5" />
-                <span className="font-medium">Upload New Document</span>
+                <span className="font-medium">Upload Policy Document</span>
               </button>
               <button className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md">
                 <ChatBubbleLeftRightIcon className="w-5 h-5" />
-                <span className="font-medium">Start New Chat</span>
+                <span className="font-medium">Ask HR Question</span>
               </button>
               <button className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 transition-all shadow-md">
                 <ServerIcon className="w-5 h-5" />
