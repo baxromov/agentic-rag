@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "documents"
 
-    # -- Embedding --
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    # -- Embedding (via Ollama) --
+    embedding_model: str = "nomic-embed-text:latest"
     embedding_dim: int = 768
 
     # -- Reranker --

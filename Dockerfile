@@ -53,6 +53,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -e . --no-deps || true && \
     pip install -e .
 
+# Ensure nltk is installed (transitive dep of unstructured, but install explicitly in case it partially failed)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install nltk
+
 # Download NLTK data at build time (bypass SSL for corporate proxy)
 RUN python -c "\
 import ssl; ssl._create_default_https_context = ssl._create_unverified_context; \

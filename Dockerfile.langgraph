@@ -26,6 +26,15 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 RUN --mount=type=cache,target=/root/.cache/pip \
     PYTHONDONTWRITEBYTECODE=1 pip install -e . || true
 
+# Copy the rest of the code
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    PYTHONDONTWRITEBYTECODE=1 pip install -e .
+
+# Ensure nltk is installed (transitive dep of unstructured, but install explicitly in case unstructured partially failed)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install nltk
+
 # Download NLTK data at build time (bypass SSL for corporate proxy)
 RUN python -c "\
 import ssl; ssl._create_default_https_context = ssl._create_unverified_context; \
@@ -33,11 +42,6 @@ import nltk; \
 nltk.download('averaged_perceptron_tagger_eng', download_dir='/usr/local/nltk_data'); \
 nltk.download('punkt_tab', download_dir='/usr/local/nltk_data')"
 ENV NLTK_DATA=/usr/local/nltk_data
-
-# Copy the rest of the code
-COPY . .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    PYTHONDONTWRITEBYTECODE=1 pip install -e .
 
 # Disable SSL verification globally for corporate network
 ENV PYTHONHTTPSVERIFY=0

@@ -83,7 +83,7 @@ services:
     networks:
       - rag-network
 
-  # -- Model Server (embedding + reranker) --
+  # -- Model Server (reranker only; embeddings via Ollama) --
   model-server:
     build:
       context: ./model_server
