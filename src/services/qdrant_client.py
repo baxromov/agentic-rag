@@ -51,7 +51,7 @@ class QdrantService:
         )
 
         # Payload indexes for filtering
-        keyword_fields = ["document_id", "source", "file_type", "language"]
+        keyword_fields = ["document_id", "source", "file_type", "language", "file_hash"]
         for field in keyword_fields:
             await self._client.create_payload_index(
                 collection_name=self._collection,
@@ -182,6 +182,31 @@ class QdrantService:
                 "metadata": {k: v for k, v in point.payload.items() if k != "text"},
             }
             for point in results.points
+        ]
+
+    async def find_by_file_hash(self, file_hash: str) -> list[dict]:
+        """Find points with a matching file_hash payload."""
+        results, _ = await self._client.scroll(
+            collection_name=self._collection,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="file_hash",
+                        match=models.MatchValue(value=file_hash),
+                    )
+                ]
+            ),
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [
+            {
+                "id": str(p.id),
+                "document_id": p.payload.get("document_id"),
+                "source": p.payload.get("source"),
+            }
+            for p in results
         ]
 
     async def delete_by_document_id(self, document_id: str) -> None:

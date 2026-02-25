@@ -40,6 +40,8 @@ async def upload_document(
         document_id=result["document_id"],
         source=result["source"],
         chunks_count=result["chunks_count"],
+        skipped=result.get("skipped", False),
+        reason=result.get("reason"),
     )
 
 

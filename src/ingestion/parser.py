@@ -35,7 +35,7 @@ def parse_document(file_bytes: bytes, filename: str) -> ParsedDocument:
         tmp.write(file_bytes)
         tmp.flush()
 
-        raw_elements = partition(filename=tmp.name)
+        raw_elements = partition(filename=tmp.name, languages=["eng", "rus"])
 
     elements = []
     for el in raw_elements:

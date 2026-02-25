@@ -20,6 +20,8 @@ class DocumentUploadResponse(BaseModel):
     document_id: str
     source: str
     chunks_count: int
+    skipped: bool = False
+    reason: str | None = None
 
 
 class DocumentInfo(BaseModel):

@@ -158,7 +158,10 @@ export const UploadToast: React.FC = () => {
                 <p className="text-sm text-slate-300 truncate">{task.filename}</p>
                 <p className="text-xs text-slate-500">
                   {formatSize(task.size)}
-                  {task.status === 'success' && task.chunksCount !== undefined && (
+                  {task.status === 'success' && task.skipped && (
+                    <span className="text-amber-400"> - already exists, skipped</span>
+                  )}
+                  {task.status === 'success' && !task.skipped && task.chunksCount !== undefined && (
                     <span className="text-green-400"> - {task.chunksCount} chunks</span>
                   )}
                   {task.status === 'error' && task.error && (

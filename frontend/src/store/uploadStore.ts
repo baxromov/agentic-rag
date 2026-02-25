@@ -25,6 +25,7 @@ export interface UploadTask {
   status: UploadStatus;
   error?: string;
   chunksCount?: number;
+  skipped?: boolean;
 }
 
 /** Serializable subset of UploadTask (File objects can't be persisted) */
@@ -35,18 +36,20 @@ interface PersistedTask {
   status: UploadStatus;
   error?: string;
   chunksCount?: number;
+  skipped?: boolean;
 }
 
 function saveTasks(tasks: UploadTask[]) {
   try {
     const serializable: PersistedTask[] = tasks.map(
-      ({ id, filename, size, status, error, chunksCount }) => ({
+      ({ id, filename, size, status, error, chunksCount, skipped }) => ({
         id,
         filename,
         size,
         status,
         error,
         chunksCount,
+        skipped,
       }),
     );
     localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
@@ -208,6 +211,7 @@ async function processQueue() {
               ...t,
               status: "success" as UploadStatus,
               chunksCount: result.chunks_count,
+              skipped: result.skipped || false,
             }
           : t,
       );

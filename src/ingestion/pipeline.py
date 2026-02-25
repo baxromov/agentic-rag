@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime, timezone
 
@@ -88,6 +89,18 @@ class IngestionPipeline:
         self, file_bytes: bytes, filename: str, document_id: str | None = None
     ) -> dict:
         """Ingest a document from raw bytes: upload to MinIO, parse, chunk, embed, index."""
+        # Check for duplicate by file content hash
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        existing = await self._qdrant.find_by_file_hash(file_hash)
+        if existing:
+            return {
+                "document_id": existing[0]["document_id"],
+                "source": existing[0]["source"],
+                "chunks_count": 0,
+                "skipped": True,
+                "reason": "duplicate",
+            }
+
         document_id = document_id or str(uuid.uuid4())
         minio_key = f"{document_id}/{filename}"
 
@@ -120,6 +133,7 @@ class IngestionPipeline:
                 "document_id": document_id,
                 "source": minio_key,
                 "file_type": parsed.file_type,
+                "file_hash": file_hash,
                 "language": languages[i],
                 "page_number": chunk.page_number,
                 "page_start": chunk.page_start,

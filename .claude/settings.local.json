@@ -6,7 +6,10 @@
       "mcp__acp__Edit",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(docker compose down:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker compose:*)"
     ]
   }
 }
