@@ -258,38 +258,31 @@ def create_dynamic_system_prompt(
     # Add cross-language instruction if documents are in a different language
     if doc_languages and detected_language not in doc_languages:
         cross_lang_instructions = {
-            "en": f"IMPORTANT: The source documents may be in {', '.join(doc_languages)}. Read and understand them regardless of language, then answer in English.",
-            "ru": f"ВАЖНО: Исходные документы могут быть на {', '.join(doc_languages)} языке. Прочитайте и поймите их независимо от языка, затем ответьте на русском.",
-            "uz": f"MUHIM: Manba hujjatlari {', '.join(doc_languages)} tilida bo'lishi mumkin. Ularni tilidan qat'i nazar o'qing va tushuning, keyin o'zbek tilida javob bering.",
+            "en": f"The source documents are in {', '.join(doc_languages)}. Read them regardless of language, answer in English.",
+            "ru": f"Исходные документы на {', '.join(doc_languages)} языке. Читайте их независимо от языка, отвечайте на русском.",
+            "uz": f"Manba hujjatlari {', '.join(doc_languages)} tilida. Tilidan qat'i nazar o'qing, o'zbek tilida javob bering.",
         }
         prompt_parts.append(cross_lang_instructions.get(detected_language, cross_lang_instructions["en"]))
 
-    # Add grounding instruction
+    # Grounding: use documents silently, answer from them only
     grounding_instructions = {
-        "en": "Answer based ONLY on the provided company policy documents. If the documents genuinely do not contain ANY relevant information about the topic, say: 'I could not find this information in the company's policy documents. Please contact the HR department for assistance.' However, if the documents contain relevant information in ANY language, use it to answer.",
-        "ru": "Отвечайте ТОЛЬКО на основе предоставленных нормативных документов компании. Если документы действительно НЕ содержат НИКАКОЙ релевантной информации по теме, скажите: 'Я не нашёл эту информацию в нормативных документах компании. Пожалуйста, обратитесь в отдел кадров за помощью.' Однако, если документы содержат релевантную информацию на ЛЮБОМ языке, используйте её для ответа.",
-        "uz": "FAQAT taqdim etilgan kompaniya normativ hujjatlari asosida javob bering. Agar hujjatlarda mavzu bo'yicha HECH QANDAY tegishli ma'lumot bo'lmasa, ayting: 'Men kompaniya normativ hujjatlaridan bu ma'lumotni topa olmadim. Iltimos, yordam uchun HR bo'limiga murojaat qiling.' Biroq, agar hujjatlarda ISTALGAN tilda tegishli ma'lumot bo'lsa, undan foydalaning.",
+        "en": "Use the provided documents silently to produce the correct answer. Do NOT invent information. If the documents contain relevant information in ANY language, use it. Only say you could not find the information if there is genuinely NOTHING relevant.",
+        "ru": "Используйте предоставленные документы скрыто для получения правильного ответа. НЕ выдумывайте информацию. Если документы содержат релевантную информацию на ЛЮБОМ языке, используйте её. Говорите что не нашли информацию только если в документах действительно НЕТ ничего релевантного.",
+        "uz": "Taqdim etilgan hujjatlarni ichki ravishda to'g'ri javob berish uchun foydalaning. Ma'lumot to'qimang. Agar hujjatlarda ISTALGAN tilda tegishli ma'lumot bo'lsa, undan foydalaning. Faqat haqiqatan HECH NARSA tegishli bo'lmasa, topa olmadim deng.",
     }
     prompt_parts.append(grounding_instructions.get(detected_language, grounding_instructions["en"]))
 
-    # Direct answer mode: no citations, no references
-    direct_instructions = {
-        "en": "Give direct answers only. Do not include source references, citations, page numbers, or document names.",
-        "ru": "Давайте только прямые ответы. Не включайте ссылки на источники, цитаты, номера страниц или названия документов.",
-        "uz": "Faqat to'g'ridan-to'g'ri javob bering. Manba havolalari, iqtiboslar, sahifa raqamlari yoki hujjat nomlarini kiritmang.",
+    # Strict output rules
+    output_rules = {
+        "en": "STRICT RULES: Short, clear, professional — 2-5 sentences max. NEVER show sources, citations, page numbers, document names. NEVER write 'according to', 'as stated in', 'based on'. No introductions, no filler, no repetition. Only the final correct answer.",
+        "ru": "СТРОГИЕ ПРАВИЛА: Кратко, ясно, профессионально — максимум 2-5 предложений. НИКОГДА не указывайте источники, цитаты, номера страниц, названия документов. НИКОГДА не пишите 'согласно документу', 'как указано в', 'на основании'. Без вступлений, без лишних слов, без повторений. Только итоговый правильный ответ.",
+        "uz": "QATTIY QOIDALAR: Qisqa, aniq, professional — maksimum 2-5 gap. HECH QACHON manbalar, iqtiboslar, sahifa raqamlari, hujjat nomlari ko'rsatmang. HECH QACHON 'hujjatga ko'ra', 'aytilganidek' yozmang. Kirish so'zlarsiz, ortiqchasiz, takrorlarsiz. Faqat yakuniy to'g'ri javob.",
     }
-    prompt_parts.append(direct_instructions.get(detected_language, direct_instructions["en"]))
+    prompt_parts.append(output_rules.get(detected_language, output_rules["en"]))
 
-    # Add response style instruction
+    # Override with detailed style only if explicitly requested
     response_style = runtime_context.get("response_style", "balanced")
-    if response_style == "concise":
-        style_instructions = {
-            "en": "Keep responses brief and to the point.",
-            "ru": "Давайте краткие и точные ответы.",
-            "uz": "Javoblarni qisqa va aniq bering.",
-        }
-        prompt_parts.append(style_instructions.get(detected_language, style_instructions["en"]))
-    elif response_style == "detailed":
+    if response_style == "detailed":
         style_instructions = {
             "en": "Provide comprehensive, detailed explanations.",
             "ru": "Предоставляйте всесторонние, подробные объяснения.",
