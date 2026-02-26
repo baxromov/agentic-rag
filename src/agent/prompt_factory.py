@@ -248,11 +248,27 @@ def create_dynamic_system_prompt(
             }
             prompt_parts.append(doc_instructions.get(detected_language, doc_instructions["en"]))
 
+    # Detect if documents are in a different language than the query
+    doc_languages = set()
+    for doc in documents:
+        doc_lang = doc.get("metadata", {}).get("language", "")
+        if doc_lang:
+            doc_languages.add(doc_lang)
+
+    # Add cross-language instruction if documents are in a different language
+    if doc_languages and detected_language not in doc_languages:
+        cross_lang_instructions = {
+            "en": f"IMPORTANT: The source documents may be in {', '.join(doc_languages)}. Read and understand them regardless of language, then answer in English.",
+            "ru": f"ВАЖНО: Исходные документы могут быть на {', '.join(doc_languages)} языке. Прочитайте и поймите их независимо от языка, затем ответьте на русском.",
+            "uz": f"MUHIM: Manba hujjatlari {', '.join(doc_languages)} tilida bo'lishi mumkin. Ularni tilidan qat'i nazar o'qing va tushuning, keyin o'zbek tilida javob bering.",
+        }
+        prompt_parts.append(cross_lang_instructions.get(detected_language, cross_lang_instructions["en"]))
+
     # Add grounding instruction
     grounding_instructions = {
-        "en": "Answer based ONLY on the provided company policy documents. If the documents do not contain enough information, say: 'I could not find this information in the company's policy documents. Please contact the HR department for assistance.'",
-        "ru": "Отвечайте ТОЛЬКО на основе предоставленных нормативных документов компании. Если в документах нет достаточной информации, скажите: 'Я не нашёл эту информацию в нормативных документах компании. Пожалуйста, обратитесь в отдел кадров за помощью.'",
-        "uz": "FAQAT taqdim etilgan kompaniya normativ hujjatlari asosida javob bering. Agar hujjatlarda yetarli ma'lumot bo'lmasa, ayting: 'Men kompaniya normativ hujjatlaridan bu ma'lumotni topa olmadim. Iltimos, yordam uchun HR bo'limiga murojaat qiling.'",
+        "en": "Answer based ONLY on the provided company policy documents. If the documents genuinely do not contain ANY relevant information about the topic, say: 'I could not find this information in the company's policy documents. Please contact the HR department for assistance.' However, if the documents contain relevant information in ANY language, use it to answer.",
+        "ru": "Отвечайте ТОЛЬКО на основе предоставленных нормативных документов компании. Если документы действительно НЕ содержат НИКАКОЙ релевантной информации по теме, скажите: 'Я не нашёл эту информацию в нормативных документах компании. Пожалуйста, обратитесь в отдел кадров за помощью.' Однако, если документы содержат релевантную информацию на ЛЮБОМ языке, используйте её для ответа.",
+        "uz": "FAQAT taqdim etilgan kompaniya normativ hujjatlari asosida javob bering. Agar hujjatlarda mavzu bo'yicha HECH QANDAY tegishli ma'lumot bo'lmasa, ayting: 'Men kompaniya normativ hujjatlaridan bu ma'lumotni topa olmadim. Iltimos, yordam uchun HR bo'limiga murojaat qiling.' Biroq, agar hujjatlarda ISTALGAN tilda tegishli ma'lumot bo'lsa, undan foydalaning.",
     }
     prompt_parts.append(grounding_instructions.get(detected_language, grounding_instructions["en"]))
 

@@ -176,6 +176,8 @@ services:
       LANGCHAIN_TRACING: "false"
       LANGSMITH_TRACING: "false"
       LANGSMITH_API_KEY: ""
+      LANGSMITH_ENDPOINT: ""
+      LANGCHAIN_ENDPOINT: ""
       # Disable SSL verification for corporate network
       SSL_CERT_FILE: ""
       REQUESTS_CA_BUNDLE: ""

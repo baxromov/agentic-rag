@@ -1,3 +1,5 @@
+import builtins as _builtins
+
 from langgraph.graph import END, StateGraph
 
 from src.agent.nodes import (
@@ -98,18 +100,16 @@ def build_graph(
     return workflow.compile()
 
 
-_cached_graph = None
-
-
 async def create_default_graph():
-    """Create graph with default services — cached to avoid re-initialization on every access."""
-    global _cached_graph
-    if _cached_graph is not None:
-        return _cached_graph
+    """Create graph with default services — cached in builtins to survive module reloads."""
+    cached = getattr(_builtins, "_rag_cached_graph", None)
+    if cached is not None:
+        return cached
     settings = get_settings()
     embedding = EmbeddingService(settings)
-    qdrant = await QdrantService.create(settings)  # Async factory for Qdrant
+    qdrant = await QdrantService.create(settings)
     reranker = RerankerService(settings)
     llm = create_llm(settings)
-    _cached_graph = build_graph(embedding, qdrant, reranker, llm)
-    return _cached_graph
+    graph = build_graph(embedding, qdrant, reranker, llm)
+    _builtins._rag_cached_graph = graph
+    return graph
