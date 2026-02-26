@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "langgraph-sdk>=0.1.36",
     "langgraph-checkpoint-postgres>=2.0.0",
+    "langdetect>=1.0.9",
 ]
 
 [dependency-groups]

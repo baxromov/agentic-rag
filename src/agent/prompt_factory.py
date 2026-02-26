@@ -2,46 +2,56 @@
 import re
 from typing import Any
 
+from langdetect import detect as _langdetect_detect
+from langdetect import LangDetectException
+
+_VALID_LANG_CODES = {"en", "ru", "uz"}
+
+# langdetect maps: Turkish is often confused with Uzbek Latin
+_LANG_MAP = {"tr": "uz"}
+
 
 def detect_language(text: str) -> str:
     """
-    Detect the language of the input text using simple heuristics.
-
-    Args:
-        text: Input text to analyze
+    Detect the language of the input text using langdetect with regex fallback.
 
     Returns:
         Language code: "en", "ru", "uz", or "unknown"
     """
+    # For very short texts (<10 chars), langdetect is unreliable — use regex heuristic
+    if len(text.strip()) < 10:
+        return _detect_language_regex(text)
+
+    try:
+        code = _langdetect_detect(text)
+        code = _LANG_MAP.get(code, code)
+        if code in _VALID_LANG_CODES:
+            return code
+        # If langdetect returns an unsupported language, fall back to regex
+        return _detect_language_regex(text)
+    except LangDetectException:
+        return _detect_language_regex(text)
+
+
+def _detect_language_regex(text: str) -> str:
+    """Regex-based fallback for short texts or when langdetect fails."""
     text_lower = text.lower()
 
-    # Cyrillic characters indicate Russian or Uzbek
     cyrillic_count = len(re.findall(r"[а-яё]", text_lower))
-
-    # Latin characters
     latin_count = len(re.findall(r"[a-z]", text_lower))
-
-    # Uzbek-specific characters
     uzbek_chars = len(re.findall(r"[ўқғҳ]", text_lower))
 
     total_letters = cyrillic_count + latin_count + uzbek_chars
-
     if total_letters == 0:
-        return "en"  # Default
+        return "en"
 
-    # Uzbek has specific characters
     if uzbek_chars > 0:
         return "uz"
 
-    # More Cyrillic than Latin = Russian
     if cyrillic_count > latin_count:
         return "ru"
 
-    # More Latin = English
-    if latin_count > cyrillic_count:
-        return "en"
-
-    return "en"  # Default
+    return "en"
 
 
 def detect_query_type(query: str) -> str:
@@ -232,9 +242,9 @@ def create_dynamic_system_prompt(
         dominant_type = max(doc_types.items(), key=lambda x: x[1])[0]
         if dominant_type == "pdf" and doc_types.get("pdf", 0) == len(documents):
             doc_instructions = {
-                "en": "You're analyzing company policy documents. Provide precise citations with document names and page numbers.",
-                "ru": "Вы анализируете нормативные документы компании. Указывайте точные ссылки с названиями документов и номерами страниц.",
-                "uz": "Siz kompaniya normativ hujjatlarini tahlil qilyapsiz. Hujjat nomlari va sahifa raqamlari bilan aniq havolalar bering.",
+                "en": "You're analyzing company policy documents.",
+                "ru": "Вы анализируете нормативные документы компании.",
+                "uz": "Siz kompaniya normativ hujjatlarini tahlil qilyapsiz.",
             }
             prompt_parts.append(doc_instructions.get(detected_language, doc_instructions["en"]))
 
@@ -246,15 +256,13 @@ def create_dynamic_system_prompt(
     }
     prompt_parts.append(grounding_instructions.get(detected_language, grounding_instructions["en"]))
 
-    # Add citation instruction if enabled
-    enable_citations = runtime_context.get("enable_citations", True)
-    if enable_citations:
-        citation_instructions = {
-            "en": "Include page references when available (e.g., 'according to page 3...').",
-            "ru": "Включайте ссылки на страницы, когда доступны (например, 'согласно странице 3...').",
-            "uz": "Sahifa havolalarini qo'shing (masalan, '3-sahifaga ko'ra...').",
-        }
-        prompt_parts.append(citation_instructions.get(detected_language, citation_instructions["en"]))
+    # Direct answer mode: no citations, no references
+    direct_instructions = {
+        "en": "Give direct answers only. Do not include source references, citations, page numbers, or document names.",
+        "ru": "Давайте только прямые ответы. Не включайте ссылки на источники, цитаты, номера страниц или названия документов.",
+        "uz": "Faqat to'g'ridan-to'g'ri javob bering. Manba havolalari, iqtiboslar, sahifa raqamlari yoki hujjat nomlarini kiritmang.",
+    }
+    prompt_parts.append(direct_instructions.get(detected_language, direct_instructions["en"]))
 
     # Add response style instruction
     response_style = runtime_context.get("response_style", "balanced")

@@ -49,14 +49,15 @@ class Settings(BaseSettings):
     model_server_url: str = "http://model-server:8080"
 
     # -- Chunking --
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
+    chunk_size: int = 500
+    chunk_overlap: int = 100
+    parent_chunk_size: int = 2000
 
     # -- Retrieval --
-    retrieval_top_k: int = 10
-    retrieval_prefetch_limit: int = 20
-    rerank_top_k: int = 5
-    rrf_k: int = 60
+    retrieval_top_k: int = 15
+    retrieval_prefetch_limit: int = 30
+    rerank_top_k: int = 7
+    rrf_k: int = 40
 
     # -- Redis --
     redis_url: str = "redis://redis:6379"
@@ -66,6 +67,12 @@ class Settings(BaseSettings):
 
     # -- LangGraph API Server --
     langgraph_api_url: str = "http://langgraph-server:8000"
+
+    # -- Ingestion --
+    enable_hypothetical_questions: bool = True
+
+    # -- Query --
+    enable_hyde: bool = True
 
     # -- Agent --
     max_retries: int = 3

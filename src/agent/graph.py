@@ -1,11 +1,16 @@
 from langgraph.graph import END, StateGraph
 
 from src.agent.nodes import (
+    make_expand_context_node,
     make_generate_node,
     make_grade_documents_node,
+    make_greeting_response_node,
+    make_intent_router_node,
+    make_query_prepare_node,
     make_rerank_node,
     make_retrieve_node,
     make_rewrite_query_node,
+    route_by_intent,
     should_retry,
 )
 from src.config.settings import get_settings
@@ -23,11 +28,13 @@ def build_graph(
     llm=None,
     model_name: str | None = None,
 ):
-    """Build the agentic RAG StateGraph with self-correcting retrieval loop.
+    """Build the agentic RAG StateGraph with intent routing and self-correcting retrieval loop.
 
-    Flow: retrieve -> rerank -> grade_documents
-          --[has relevant]--> generate -> END
-          --[no relevant]--> rewrite_query -> retrieve (max 3 retries)
+    Flow: intent_router
+          --[greeting/thanks]--> greeting_response -> END
+          --[hr_query]--> query_prepare -> retrieve -> rerank -> grade_documents
+              --[has relevant]--> expand_context -> generate -> END
+              --[no relevant]--> rewrite_query -> retrieve (max 3 retries)
     """
     settings = get_settings()
     if llm is None:
@@ -47,25 +54,44 @@ def build_graph(
 
     workflow = StateGraph(AgentState)
 
-    # Add nodes
-    workflow.add_node("retrieve", make_retrieve_node(embedding, qdrant))
+    # Add nodes — intent routing (no LLM)
+    workflow.add_node("intent_router", make_intent_router_node())
+    workflow.add_node("greeting_response", make_greeting_response_node())
+
+    # Add nodes — RAG pipeline
+    workflow.add_node("query_prepare", make_query_prepare_node(llm))
+    workflow.add_node("retrieve", make_retrieve_node(embedding, qdrant, llm))
     workflow.add_node("rerank", make_rerank_node(reranker))
     workflow.add_node("grade_documents", make_grade_documents_node(llm))
+    workflow.add_node("expand_context", make_expand_context_node(qdrant))
     workflow.add_node("generate", make_generate_node(llm, model_name))
     workflow.add_node("rewrite_query", make_rewrite_query_node(llm))
 
-    # Define edges
-    workflow.set_entry_point("retrieve")
+    # Define edges — intent routing entry point
+    workflow.set_entry_point("intent_router")
+    workflow.add_conditional_edges(
+        "intent_router",
+        route_by_intent,
+        {
+            "greeting_response": "greeting_response",
+            "rewrite_for_retrieval": "query_prepare",
+        },
+    )
+    workflow.add_edge("greeting_response", END)
+
+    # Define edges — RAG pipeline
+    workflow.add_edge("query_prepare", "retrieve")
     workflow.add_edge("retrieve", "rerank")
     workflow.add_edge("rerank", "grade_documents")
     workflow.add_conditional_edges(
         "grade_documents",
         should_retry,
         {
-            "generate": "generate",
+            "generate": "expand_context",
             "rewrite": "rewrite_query",
         },
     )
+    workflow.add_edge("expand_context", "generate")
     workflow.add_edge("rewrite_query", "retrieve")
     workflow.add_edge("generate", END)
 

@@ -1,3 +1,6 @@
+import asyncio
+import json
+import re
 import time
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -10,9 +13,12 @@ from src.agent.prompts import (
     GENERATION_SYSTEM,
     GRADING_HUMAN,
     GRADING_SYSTEM,
+    QUERY_PREPARE_HUMAN,
+    QUERY_PREPARE_SYSTEM,
     REWRITE_HUMAN,
     REWRITE_SYSTEM,
 )
+from src.config.settings import get_settings
 from src.agent.validators import validate_generation
 from src.models.state import AgentState
 from src.services.context_manager import fit_documents_to_budget
@@ -21,15 +27,209 @@ from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
 from src.utils.telemetry import log_generation, log_grading, log_rerank, log_retrieval
 
+# --- Intent detection patterns ---
 
-def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
-    """Create a retrieve node that performs hybrid search with language detection."""
+_GREETING_PATTERNS = {
+    # Uzbek
+    "salom", "assalomu alaykum", "assalom", "hayrli kun", "hayrli tong",
+    "hayrli kech", "xayrli kun", "xayrli tong", "xayrli kech",
+    # Russian
+    "привет", "здравствуйте", "здравствуй", "добрый день", "доброе утро",
+    "добрый вечер", "приветствую", "хай",
+    # English
+    "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+    "greetings",
+}
+
+_THANKS_PATTERNS = {
+    "rahmat", "raxmat", "tashakkur",
+    "спасибо", "благодарю",
+    "thanks", "thank you", "thx",
+}
+
+_GREETING_RESPONSES = {
+    "uz": "Assalomu alaykum! HR siyosatlari bo'yicha qanday yordam bera olaman?",
+    "ru": "Здравствуйте! Чем могу помочь по вопросам HR политики?",
+    "en": "Hello! How can I help you with HR policies?",
+}
+
+_THANKS_RESPONSES = {
+    "uz": "Arzimaydi! Yana savollaringiz bo'lsa, bemalol murojaat qiling.",
+    "ru": "Пожалуйста! Если у вас будут ещё вопросы, обращайтесь.",
+    "en": "You're welcome! Feel free to ask if you have more questions.",
+}
+
+# Regex to detect emoji-only messages
+_EMOJI_PATTERN = re.compile(
+    r"^[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
+    r"\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0000FE00-\U0000FE0F"
+    r"\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF"
+    r"\U00002600-\U000026FF\U0000200D\U00002764\s]+$"
+)
+
+
+def _classify_intent(text: str) -> str:
+    """Classify user message intent using pattern matching. No LLM call."""
+    cleaned = text.strip().lower()
+    # Remove trailing punctuation
+    cleaned = cleaned.rstrip("!?.,:;")
+
+    # Emoji-only messages → greeting
+    if _EMOJI_PATTERN.match(text.strip()):
+        return "greeting"
+
+    # Empty after cleaning
+    if not cleaned:
+        return "greeting"
+
+    # Exact match against greeting/thanks patterns
+    if cleaned in _GREETING_PATTERNS:
+        return "greeting"
+    if cleaned in _THANKS_PATTERNS:
+        return "thanks"
+
+    # Short messages (≤3 words) that START with a greeting word but are ONLY greetings
+    words = cleaned.split()
+    if len(words) <= 3:
+        first_word = words[0]
+        if first_word in _GREETING_PATTERNS or any(cleaned.startswith(p) for p in _GREETING_PATTERNS if " " in p):
+            # Make sure it's not a question disguised as a greeting
+            # e.g., "salom, leave policy?" should NOT be a greeting
+            if not any(c in cleaned for c in [",", "?"]) or len(words) <= 2:
+                return "greeting"
+        if first_word in _THANKS_PATTERNS or any(cleaned.startswith(p) for p in _THANKS_PATTERNS if " " in p):
+            return "thanks"
+
+    return "hr_query"
+
+
+def make_intent_router_node():
+    """Create a node that classifies user intent without LLM calls."""
+
+    async def intent_router(state: AgentState) -> dict:
+        query = state["query"]
+        intent = _classify_intent(query)
+        return {"intent": intent}
+
+    return intent_router
+
+
+def make_greeting_response_node():
+    """Create a node that returns a friendly multilingual greeting (no LLM/search)."""
+
+    async def greeting_response(state: AgentState) -> dict:
+        query = state["query"]
+        intent = state.get("intent", "greeting")
+        conversation_history = state.get("messages", [])
+
+        # Detect language for response
+        lang = detect_language(query)
+
+        # Pick response based on intent
+        if intent == "thanks":
+            response = _THANKS_RESPONSES.get(lang, _THANKS_RESPONSES["en"])
+        else:
+            response = _GREETING_RESPONSES.get(lang, _GREETING_RESPONSES["en"])
+
+        updated_messages = conversation_history + [AIMessage(content=response)]
+
+        return {
+            "generation": response,
+            "messages": updated_messages,
+            "documents": [],
+        }
+
+    return greeting_response
+
+
+def route_by_intent(state: AgentState) -> str:
+    """Conditional edge: route greetings to greeting_response, else to RAG pipeline."""
+    intent = state.get("intent", "hr_query")
+    if intent in ("greeting", "thanks"):
+        return "greeting_response"
+    return "rewrite_for_retrieval"
+
+
+def make_query_prepare_node(llm: BaseChatModel):
+    """Merged node: rewrites query + generates multi-query + step-back + filters in ONE LLM call."""
+
+    async def query_prepare(state: AgentState) -> dict:
+        query = state["query"]
+        messages = [
+            SystemMessage(content=QUERY_PREPARE_SYSTEM),
+            HumanMessage(content=QUERY_PREPARE_HUMAN.format(query=query)),
+        ]
+        response = await llm.ainvoke(messages)
+
+        # Parse JSON response
+        try:
+            content = response.content.strip()
+            # Remove markdown code blocks if present
+            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                json_match = re.search(r"\{.*\}", content, re.DOTALL)
+                json_str = json_match.group(0) if json_match else content
+
+            result = json.loads(json_str)
+
+            search_query = result.get("search_query", query)
+            search_queries = result.get("search_queries", [])
+            step_back = result.get("step_back_query", "")
+            inferred_filters = result.get("filters")
+
+            # Combine: primary rewritten query + alternatives + step-back
+            all_queries = [search_query]
+            if search_queries:
+                all_queries.extend(search_queries[:3])
+            if step_back:
+                all_queries.append(step_back)
+
+            # Clean empty/null filters
+            if inferred_filters:
+                inferred_filters = {k: v for k, v in inferred_filters.items() if v}
+                if not inferred_filters:
+                    inferred_filters = None
+
+            return {
+                "original_query": query,
+                "search_query": search_query,
+                "search_queries": all_queries,
+                "inferred_filters": inferred_filters,
+            }
+        except (json.JSONDecodeError, AttributeError) as e:
+            print(f"Query prepare parsing error: {e}")
+            return {
+                "original_query": query,
+                "search_query": query,
+                "search_queries": [query],
+                "inferred_filters": None,
+            }
+
+    return query_prepare
+
+
+def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService, llm: BaseChatModel = None):
+    """Create a retrieve node with parallel multi-query embedding + search."""
+
+    async def _embed_and_search(sq: str, merged_filters: dict | None) -> list[dict]:
+        """Embed one query and run hybrid search — used as a parallel unit."""
+        query_vector = await embedding.embed_query(sq)
+        return await qdrant.hybrid_search(
+            query_vector=query_vector,
+            query_text=sq,
+            filters=merged_filters,
+        )
 
     async def retrieve(state: AgentState) -> dict:
         start_time = time.time()
-        query = state["query"]
+        query = state.get("original_query") or state["query"]
+        search_queries = state.get("search_queries") or [state.get("search_query") or query]
         filters = state.get("filters") or {}
+        inferred_filters = state.get("inferred_filters")
         runtime_context = state.get("runtime_context") or {}
+        settings = get_settings()
 
         # Detect query language (or use user preference)
         language_pref = runtime_context.get("language_preference", "auto")
@@ -38,31 +238,63 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
         else:
             detected_language = language_pref
 
-        # First, try to retrieve documents preferring the detected language
-        # This is a soft preference - we'll get mixed results if language-specific docs are few
-        language_filters = filters.copy()
+        # Merge user filters with inferred metadata filters
+        merged_filters = {**filters}
+        if inferred_filters:
+            merged_filters.update(inferred_filters)
+        effective_filters = merged_filters if merged_filters else None
 
-        # Perform hybrid search
-        query_vector = await embedding.embed_query(query)
-        documents = await qdrant.hybrid_search(
-            query_vector=query_vector,
-            query_text=query,
-            filters=filters,  # Use original filters (no hard language constraint)
+        # Parallel multi-query retrieval: embed + search all queries concurrently
+        search_results = await asyncio.gather(
+            *[_embed_and_search(sq, effective_filters) for sq in search_queries],
+            return_exceptions=True,
         )
+
+        # Merge and deduplicate by point ID (keep highest score)
+        all_docs: dict[str, dict] = {}
+        for result in search_results:
+            if isinstance(result, Exception):
+                print(f"Search query error: {result}")
+                continue
+            for doc in result:
+                doc_id = doc.get("id", "")
+                if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
+                    all_docs[doc_id] = doc
+
+        # HyDE: generate hypothetical answer, embed it, search
+        if llm and settings.enable_hyde:
+            try:
+                hyde_response = await llm.ainvoke([
+                    HumanMessage(
+                        content=(
+                            f"Write one paragraph that would answer this HR policy question. "
+                            f"Base it on typical corporate HR policies.\n\nQuestion: {query}"
+                        )
+                    )
+                ])
+                hyde_text = hyde_response.content.strip()
+                hyde_docs = await _embed_and_search(hyde_text, effective_filters)
+                for doc in hyde_docs:
+                    doc_id = doc.get("id", "")
+                    if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
+                        all_docs[doc_id] = doc
+            except Exception as e:
+                print(f"HyDE retrieval error: {e}")
+
+        documents = list(all_docs.values())
 
         # Post-process: boost scores for same-language documents
         if detected_language and detected_language != "unknown":
             for doc in documents:
                 doc_lang = doc.get("metadata", {}).get("language", "")
                 if doc_lang == detected_language:
-                    # Boost score by 10% for same-language documents
                     doc["score"] = doc["score"] * 1.1
                     doc["language_match"] = True
                 else:
                     doc["language_match"] = False
 
-            # Re-sort by boosted scores
-            documents.sort(key=lambda d: d["score"], reverse=True)
+        # Sort by score
+        documents.sort(key=lambda d: d["score"], reverse=True)
 
         # Log retrieval metrics
         latency_ms = int((time.time() - start_time) * 1000)
@@ -71,12 +303,12 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
             doc_count=len(documents),
             latency_ms=latency_ms,
             query_language=detected_language,
-            filters=filters if filters else None,
+            filters=merged_filters if merged_filters else None,
         )
 
         return {
             "documents": documents,
-            "query_language": detected_language,  # Store for later use
+            "query_language": detected_language,
         }
 
     return retrieve
@@ -154,9 +386,6 @@ def make_grade_documents_node(llm: BaseChatModel):
 
         # Parse JSON response
         try:
-            import json
-            import re
-
             # Extract JSON array from response (handle markdown code blocks)
             content = response.content.strip()
             # Remove markdown code blocks if present
@@ -223,7 +452,8 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
 
     async def generate(state: AgentState) -> dict:
         start_time = time.time()
-        query = state["query"]
+        # Use original_query for generation (natural language), not the rewritten search query
+        query = state.get("original_query") or state["query"]
         documents = state["documents"]
         conversation_history = state.get("messages", [])
         runtime_context = state.get("runtime_context") or {}
@@ -323,18 +553,65 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
     return generate
 
 
+def make_expand_context_node(qdrant: QdrantService):
+    """Create a node that expands chunk context using parent text or neighbor lookup."""
+
+    async def expand_context(state: AgentState) -> dict:
+        documents = state["documents"]
+        expanded = []
+        seen_parents: dict[str, bool] = {}  # Deduplicate parent chunks
+
+        for doc in documents:
+            meta = doc.get("metadata", {})
+
+            # If parent_text exists (new ingestion), deduplicate by parent
+            if meta.get("parent_text"):
+                parent_key = f"{meta.get('document_id')}:{meta.get('parent_chunk_index')}"
+                if parent_key not in seen_parents:
+                    seen_parents[parent_key] = True
+                    expanded.append(doc)
+                continue
+
+            # Old documents without parent_text: expand by fetching neighbors
+            doc_id = meta.get("document_id")
+            chunk_idx = meta.get("chunk_index")
+            if doc_id is not None and chunk_idx is not None:
+                neighbors = await qdrant.get_surrounding_chunks(doc_id, chunk_idx, window=1)
+                if neighbors:
+                    merged_text = "\n".join(
+                        p.payload.get("text", "") for p in neighbors
+                    )
+                    expanded_doc = doc.copy()
+                    expanded_doc["text"] = merged_text
+                    expanded.append(expanded_doc)
+                else:
+                    expanded.append(doc)
+            else:
+                expanded.append(doc)
+
+        return {"documents": expanded}
+
+    return expand_context
+
+
 def make_rewrite_query_node(llm: BaseChatModel):
-    """Create a node that rewrites the query for better retrieval."""
+    """Create a node that rewrites the query for better retrieval on retry."""
 
     async def rewrite_query(state: AgentState) -> dict:
-        query = state["query"]
+        query = state.get("search_query") or state["query"]
         retries = state.get("retries", 0)
         messages = [
             SystemMessage(content=REWRITE_SYSTEM),
             HumanMessage(content=REWRITE_HUMAN.format(query=query)),
         ]
         response = await llm.ainvoke(messages)
-        return {"query": response.content.strip(), "retries": retries + 1}
+        rewritten = response.content.strip()
+        return {
+            "query": rewritten,
+            "search_query": rewritten,
+            "search_queries": [rewritten],  # Reset multi-query for retry
+            "retries": retries + 1,
+        }
 
     return rewrite_query
 

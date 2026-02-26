@@ -10,6 +10,7 @@ class ParsedElement:
     text: str
     page_number: int | None = None
     element_type: str = ""
+    section_header: str = ""
     metadata: dict = field(default_factory=dict)
 
 
@@ -38,16 +39,26 @@ def parse_document(file_bytes: bytes, filename: str) -> ParsedDocument:
         raw_elements = partition(filename=tmp.name, languages=["eng", "rus"])
 
     elements = []
+    current_section_header = ""
+    _header_types = {"Title", "Header"}
+
     for el in raw_elements:
         text = str(el).strip()
         if not text:
             continue
+        element_type = type(el).__name__
         page_number = getattr(el.metadata, "page_number", None) if hasattr(el, "metadata") else None
+
+        # Update section header when we encounter a Title or Header element
+        if element_type in _header_types:
+            current_section_header = text
+
         elements.append(
             ParsedElement(
                 text=text,
                 page_number=page_number,
-                element_type=type(el).__name__,
+                element_type=element_type,
+                section_header=current_section_header,
             )
         )
 

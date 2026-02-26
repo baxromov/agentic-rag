@@ -135,7 +135,8 @@ def fit_documents_to_budget(
         elif meta.get("page_start"):
             page_info = f" (pages {meta['page_start']}-{meta.get('page_end', '?')})"
 
-        doc_text = doc["text"]
+        # Prefer parent_text (richer context) over child text for LLM generation
+        doc_text = meta.get("parent_text") or doc.get("text", "")
         formatted_doc = f"[{included_docs + 1}]{page_info}: {doc_text}"
 
         doc_tokens = tokenizer(formatted_doc)

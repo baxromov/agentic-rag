@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from qdrant_client import AsyncQdrantClient, models
@@ -51,7 +52,10 @@ class QdrantService:
         )
 
         # Payload indexes for filtering
-        keyword_fields = ["document_id", "source", "file_type", "language", "file_hash"]
+        keyword_fields = [
+            "document_id", "source", "file_type", "language", "file_hash",
+            "section_header", "element_types", "point_type",
+        ]
         for field in keyword_fields:
             await self._client.create_payload_index(
                 collection_name=self._collection,
@@ -73,6 +77,55 @@ class QdrantService:
             field_schema=models.PayloadSchemaType.DATETIME,
         )
 
+    async def ensure_indexes(self) -> None:
+        """Idempotently create all payload indexes (safe for existing collections)."""
+        keyword_fields = [
+            "document_id", "source", "file_type", "language", "file_hash",
+            "section_header", "element_types", "point_type",
+        ]
+        for field in keyword_fields:
+            try:
+                await self._client.create_payload_index(
+                    collection_name=self._collection,
+                    field_name=field,
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+            except Exception:
+                pass  # Index already exists
+
+        integer_fields = ["page_number", "chunk_index", "parent_chunk_index"]
+        for field in integer_fields:
+            try:
+                await self._client.create_payload_index(
+                    collection_name=self._collection,
+                    field_name=field,
+                    field_schema=models.PayloadSchemaType.INTEGER,
+                )
+            except Exception:
+                pass
+
+        try:
+            await self._client.create_payload_index(
+                collection_name=self._collection,
+                field_name="text",
+                field_schema=models.TextIndexParams(
+                    type=models.TextIndexType.TEXT,
+                    tokenizer=models.TokenizerType.MULTILINGUAL,
+                    lowercase=True,
+                ),
+            )
+        except Exception:
+            pass
+
+        try:
+            await self._client.create_payload_index(
+                collection_name=self._collection,
+                field_name="created_at",
+                field_schema=models.PayloadSchemaType.DATETIME,
+            )
+        except Exception:
+            pass
+
     async def upsert(self, vectors: list[list[float]], payloads: list[dict]) -> list[str]:
         ids = [str(uuid.uuid4()) for _ in vectors]
         points = [
@@ -89,19 +142,11 @@ class QdrantService:
         top_k: int | None = None,
         filters: dict | None = None,
     ) -> list[dict]:
-        """Hybrid search: dense vector search + full-text search, fused with RRF."""
+        """Hybrid search: dense + full-text in parallel, fused with RRF."""
         top_k = top_k or self._top_k
         query_filter = self._build_filter(filters) if filters else None
 
-        # 1. Dense vector search
-        dense_results = await self._client.query_points(
-            collection_name=self._collection,
-            query=query_vector,
-            limit=self._prefetch_limit,
-            query_filter=query_filter,
-        )
-
-        # 2. Full-text search via scroll with MatchText filter
+        # Build full-text filter
         text_filter_conditions = [
             models.FieldCondition(
                 key="text",
@@ -111,7 +156,14 @@ class QdrantService:
         if query_filter and query_filter.must:
             text_filter_conditions.extend(query_filter.must)
 
-        text_results, _ = await self._client.scroll(
+        # Run dense + full-text search in parallel
+        dense_coro = self._client.query_points(
+            collection_name=self._collection,
+            query=query_vector,
+            limit=self._prefetch_limit,
+            query_filter=query_filter,
+        )
+        text_coro = self._client.scroll(
             collection_name=self._collection,
             scroll_filter=models.Filter(must=text_filter_conditions),
             limit=self._prefetch_limit,
@@ -119,7 +171,9 @@ class QdrantService:
             with_vectors=False,
         )
 
-        # 3. RRF fusion
+        dense_results, (text_results, _) = await asyncio.gather(dense_coro, text_coro)
+
+        # RRF fusion
         return self._rrf_fuse(dense_results.points, text_results, top_k)
 
     def _rrf_fuse(self, dense_points, text_points, top_k: int) -> list[dict]:
@@ -208,6 +262,33 @@ class QdrantService:
             }
             for p in results
         ]
+
+    async def get_surrounding_chunks(
+        self, document_id: str, chunk_index: int, window: int = 1
+    ) -> list:
+        """Fetch chunks before and after the given chunk from the same document."""
+        results, _ = await self._client.scroll(
+            collection_name=self._collection,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=document_id),
+                    ),
+                    models.FieldCondition(
+                        key="chunk_index",
+                        range=models.Range(
+                            gte=max(0, chunk_index - window),
+                            lte=chunk_index + window,
+                        ),
+                    ),
+                ]
+            ),
+            limit=2 * window + 1,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return sorted(results, key=lambda p: p.payload.get("chunk_index", 0))
 
     async def delete_by_document_id(self, document_id: str) -> None:
         await self._client.delete(
