@@ -10,9 +10,6 @@ from src.agent.guardrails import validate_output
 from src.agent.prompt_factory import create_dynamic_system_prompt, detect_language
 from src.agent.prompts import (
     GENERATION_HUMAN,
-    GENERATION_SYSTEM,
-    GRADING_HUMAN,
-    GRADING_SYSTEM,
     QUERY_PREPARE_HUMAN,
     QUERY_PREPARE_SYSTEM,
     REWRITE_HUMAN,
@@ -29,23 +26,30 @@ from src.utils.telemetry import log_generation, log_grading, log_rerank, log_ret
 
 # --- Intent detection patterns ---
 
-_GREETING_PATTERNS = {
-    # Uzbek
-    "salom", "assalomu alaykum", "assalom", "hayrli kun", "hayrli tong",
-    "hayrli kech", "xayrli kun", "xayrli tong", "xayrli kech",
-    # Russian
-    "привет", "здравствуйте", "здравствуй", "добрый день", "доброе утро",
-    "добрый вечер", "приветствую", "хай",
-    # English
-    "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
-    "greetings",
+_GREETING_BY_LANG = {
+    "uz": {
+        "salom", "assalomu alaykum", "assalom", "hayrli kun", "hayrli tong",
+        "hayrli kech", "xayrli kun", "xayrli tong", "xayrli kech",
+    },
+    "ru": {
+        "привет", "здравствуйте", "здравствуй", "добрый день", "доброе утро",
+        "добрый вечер", "приветствую", "хай",
+    },
+    "en": {
+        "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+        "greetings",
+    },
 }
 
-_THANKS_PATTERNS = {
-    "rahmat", "raxmat", "tashakkur",
-    "спасибо", "благодарю",
-    "thanks", "thank you", "thx",
+_THANKS_BY_LANG = {
+    "uz": {"rahmat", "raxmat", "tashakkur"},
+    "ru": {"спасибо", "благодарю"},
+    "en": {"thanks", "thank you", "thx"},
 }
+
+# Flat sets for intent classification (all languages combined)
+_GREETING_PATTERNS = _GREETING_BY_LANG["uz"] | _GREETING_BY_LANG["ru"] | _GREETING_BY_LANG["en"]
+_THANKS_PATTERNS = _THANKS_BY_LANG["uz"] | _THANKS_BY_LANG["ru"] | _THANKS_BY_LANG["en"]
 
 _GREETING_RESPONSES = {
     "uz": "Assalomu alaykum! HR siyosatlari bo'yicha qanday yordam bera olaman?",
@@ -66,6 +70,33 @@ _EMOJI_PATTERN = re.compile(
     r"\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF"
     r"\U00002600-\U000026FF\U0000200D\U00002764\s]+$"
 )
+
+
+def _detect_greeting_language(text: str) -> str:
+    """Detect language from greeting/thanks patterns. Falls back to detect_language()."""
+    cleaned = text.strip().lower().rstrip("!?.,:;")
+
+    # Check which language's patterns match
+    for lang, patterns in _GREETING_BY_LANG.items():
+        if cleaned in patterns:
+            return lang
+        # Check if first word matches a pattern from this language
+        first_word = cleaned.split()[0] if cleaned else ""
+        if first_word in patterns:
+            return lang
+        # Check multi-word patterns
+        if any(cleaned.startswith(p) for p in patterns if " " in p):
+            return lang
+
+    for lang, patterns in _THANKS_BY_LANG.items():
+        if cleaned in patterns:
+            return lang
+        first_word = cleaned.split()[0] if cleaned else ""
+        if first_word in patterns:
+            return lang
+
+    # Fallback to general language detection
+    return detect_language(text)
 
 
 def _classify_intent(text: str) -> str:
@@ -122,8 +153,8 @@ def make_greeting_response_node():
         intent = state.get("intent", "greeting")
         conversation_history = state.get("messages", [])
 
-        # Detect language for response
-        lang = detect_language(query)
+        # Detect language from greeting word itself (not langdetect which fails on short Uzbek Latin)
+        lang = _detect_greeting_language(query)
 
         # Pick response based on intent
         if intent == "thanks":
@@ -210,17 +241,8 @@ def make_query_prepare_node(llm: BaseChatModel):
     return query_prepare
 
 
-def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService, llm: BaseChatModel = None):
-    """Create a retrieve node with parallel multi-query embedding + search."""
-
-    async def _embed_and_search(sq: str, merged_filters: dict | None) -> list[dict]:
-        """Embed one query and run hybrid search — used as a parallel unit."""
-        query_vector = await embedding.embed_query(sq)
-        return await qdrant.hybrid_search(
-            query_vector=query_vector,
-            query_text=sq,
-            filters=merged_filters,
-        )
+def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
+    """Create a retrieve node with batched embedding + parallel search."""
 
     async def retrieve(state: AgentState) -> dict:
         start_time = time.time()
@@ -229,7 +251,9 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService, llm: 
         filters = state.get("filters") or {}
         inferred_filters = state.get("inferred_filters")
         runtime_context = state.get("runtime_context") or {}
-        settings = get_settings()
+
+        # Cap search queries to 3 to limit Qdrant hits
+        search_queries = search_queries[:3]
 
         # Detect query language (or use user preference)
         language_pref = runtime_context.get("language_preference", "auto")
@@ -244,11 +268,19 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService, llm: 
             merged_filters.update(inferred_filters)
         effective_filters = merged_filters if merged_filters else None
 
-        # Parallel multi-query retrieval: embed + search all queries concurrently
-        search_results = await asyncio.gather(
-            *[_embed_and_search(sq, effective_filters) for sq in search_queries],
-            return_exceptions=True,
-        )
+        # Batch embed ALL search queries in one Ollama call (1 HTTP round-trip instead of N)
+        all_vectors = await embedding.embed_documents(search_queries)
+
+        # Parallel hybrid search for all queries
+        search_coros = [
+            qdrant.hybrid_search(
+                query_vector=all_vectors[i],
+                query_text=search_queries[i],
+                filters=effective_filters,
+            )
+            for i in range(len(search_queries))
+        ]
+        search_results = await asyncio.gather(*search_coros, return_exceptions=True)
 
         # Merge and deduplicate by point ID (keep highest score)
         all_docs: dict[str, dict] = {}
@@ -260,26 +292,6 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService, llm: 
                 doc_id = doc.get("id", "")
                 if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
                     all_docs[doc_id] = doc
-
-        # HyDE: generate hypothetical answer, embed it, search
-        if llm and settings.enable_hyde:
-            try:
-                hyde_response = await llm.ainvoke([
-                    HumanMessage(
-                        content=(
-                            f"Write one paragraph that would answer this HR policy question. "
-                            f"Base it on typical corporate HR policies.\n\nQuestion: {query}"
-                        )
-                    )
-                ])
-                hyde_text = hyde_response.content.strip()
-                hyde_docs = await _embed_and_search(hyde_text, effective_filters)
-                for doc in hyde_docs:
-                    doc_id = doc.get("id", "")
-                    if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
-                        all_docs[doc_id] = doc
-            except Exception as e:
-                print(f"HyDE retrieval error: {e}")
 
         documents = list(all_docs.values())
 
@@ -354,12 +366,15 @@ def make_rerank_node(reranker: RerankerService):
     return rerank
 
 
-def make_grade_documents_node(llm: BaseChatModel):
-    """Create a node that grades document relevance using the LLM (batch mode)."""
+def make_grade_documents_node():
+    """Create a node that filters documents by reranker score threshold (no LLM call).
+
+    The cross-encoder reranker already scores relevance — using an LLM to re-grade
+    is redundant and adds 2-4s latency. Instead, filter by reranker score threshold.
+    """
 
     async def grade_documents(state: AgentState) -> dict:
         start_time = time.time()
-        query = state["query"]
         documents = state["documents"]
 
         if not documents:
@@ -367,82 +382,26 @@ def make_grade_documents_node(llm: BaseChatModel):
 
         initial_count = len(documents)
 
-        # Format all documents for batch grading
-        doc_list = []
-        for i, doc in enumerate(documents):
-            # Truncate very long documents for grading (first 500 chars)
-            text_preview = doc["text"][:500] + ("..." if len(doc["text"]) > 500 else "")
-            doc_list.append(f"[Doc {i}]: {text_preview}")
+        # Filter by reranker score threshold
+        # Jina reranker v2 scores: >0.5 = clearly relevant, 0.2-0.5 = maybe, <0.2 = irrelevant
+        score_threshold = 0.15
+        filtered = [doc for doc in documents if doc.get("score", 0) >= score_threshold]
 
-        documents_text = "\n\n".join(doc_list)
+        # Always keep at least top 3 documents even if below threshold
+        if len(filtered) < 3 and len(documents) >= 3:
+            filtered = documents[:3]
+        elif not filtered and documents:
+            filtered = documents[:1]
 
-        # Single LLM call for all documents
-        messages = [
-            SystemMessage(content=GRADING_SYSTEM),
-            HumanMessage(content=GRADING_HUMAN.format(query=query, documents=documents_text)),
-        ]
+        latency_ms = int((time.time() - start_time) * 1000)
+        log_grading(
+            initial_count=initial_count,
+            graded_count=len(filtered),
+            latency_ms=latency_ms,
+            batch_mode=False,
+        )
 
-        response = await llm.ainvoke(messages)
-
-        # Parse JSON response
-        try:
-            # Extract JSON array from response (handle markdown code blocks)
-            content = response.content.strip()
-            # Remove markdown code blocks if present
-            json_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                # Try to find JSON array directly
-                json_match = re.search(r"\[.*\]", content, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                else:
-                    # Fallback: assume whole content is JSON
-                    json_str = content
-
-            results = json.loads(json_str)
-
-            # Filter documents by relevance and confidence threshold
-            filtered = []
-            confidence_threshold = 0.5
-
-            for result in results:
-                doc_id = result.get("doc_id", -1)
-                is_relevant = result.get("relevant", False)
-                confidence = result.get("confidence", 0.0)
-
-                # Only include if relevant and confidence above threshold
-                if is_relevant and confidence >= confidence_threshold and 0 <= doc_id < len(documents):
-                    doc = documents[doc_id].copy()
-                    # Add grading metadata
-                    doc["grading_confidence"] = confidence
-                    doc["grading_reason"] = result.get("reason", "")
-                    filtered.append(doc)
-
-            # Log grading metrics
-            latency_ms = int((time.time() - start_time) * 1000)
-            log_grading(
-                initial_count=initial_count,
-                graded_count=len(filtered),
-                latency_ms=latency_ms,
-                batch_mode=True,
-            )
-
-            return {"documents": filtered}
-
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            # Fallback: if parsing fails, keep all documents
-            # Log error in production
-            print(f"Batch grading parsing error: {e}")
-            latency_ms = int((time.time() - start_time) * 1000)
-            log_grading(
-                initial_count=initial_count,
-                graded_count=initial_count,
-                latency_ms=latency_ms,
-                batch_mode=False,  # Failed to parse
-            )
-            return {"documents": documents}
+        return {"documents": filtered}
 
     return grade_documents
 
@@ -558,38 +517,46 @@ def make_expand_context_node(qdrant: QdrantService):
 
     async def expand_context(state: AgentState) -> dict:
         documents = state["documents"]
-        expanded = []
-        seen_parents: dict[str, bool] = {}  # Deduplicate parent chunks
+        seen_parents: dict[str, bool] = {}
+
+        # Separate docs with parent_text (fast path) from those needing neighbor lookup
+        fast_docs = []
+        lookup_docs = []
 
         for doc in documents:
             meta = doc.get("metadata", {})
-
-            # If parent_text exists (new ingestion), deduplicate by parent
             if meta.get("parent_text"):
                 parent_key = f"{meta.get('document_id')}:{meta.get('parent_chunk_index')}"
                 if parent_key not in seen_parents:
                     seen_parents[parent_key] = True
-                    expanded.append(doc)
-                continue
+                    fast_docs.append(doc)
+            else:
+                doc_id = meta.get("document_id")
+                chunk_idx = meta.get("chunk_index")
+                if doc_id is not None and chunk_idx is not None:
+                    lookup_docs.append((doc, doc_id, chunk_idx))
+                else:
+                    fast_docs.append(doc)
 
-            # Old documents without parent_text: expand by fetching neighbors
-            doc_id = meta.get("document_id")
-            chunk_idx = meta.get("chunk_index")
-            if doc_id is not None and chunk_idx is not None:
-                neighbors = await qdrant.get_surrounding_chunks(doc_id, chunk_idx, window=1)
-                if neighbors:
-                    merged_text = "\n".join(
+        # Parallel neighbor lookups for old documents
+        if lookup_docs:
+            neighbor_results = await asyncio.gather(
+                *[qdrant.get_surrounding_chunks(doc_id, chunk_idx, window=1)
+                  for _, doc_id, chunk_idx in lookup_docs],
+                return_exceptions=True,
+            )
+            for i, (doc, _, _) in enumerate(lookup_docs):
+                neighbors = neighbor_results[i]
+                if isinstance(neighbors, Exception) or not neighbors:
+                    fast_docs.append(doc)
+                else:
+                    expanded_doc = doc.copy()
+                    expanded_doc["text"] = "\n".join(
                         p.payload.get("text", "") for p in neighbors
                     )
-                    expanded_doc = doc.copy()
-                    expanded_doc["text"] = merged_text
-                    expanded.append(expanded_doc)
-                else:
-                    expanded.append(doc)
-            else:
-                expanded.append(doc)
+                    fast_docs.append(expanded_doc)
 
-        return {"documents": expanded}
+        return {"documents": fast_docs}
 
     return expand_context
 

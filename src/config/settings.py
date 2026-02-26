@@ -71,9 +71,6 @@ class Settings(BaseSettings):
     # -- Ingestion --
     enable_hypothetical_questions: bool = True
 
-    # -- Query --
-    enable_hyde: bool = True
-
     # -- Agent --
     max_retries: int = 3
 

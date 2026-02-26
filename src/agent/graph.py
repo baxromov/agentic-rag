@@ -60,9 +60,9 @@ def build_graph(
 
     # Add nodes — RAG pipeline
     workflow.add_node("query_prepare", make_query_prepare_node(llm))
-    workflow.add_node("retrieve", make_retrieve_node(embedding, qdrant, llm))
+    workflow.add_node("retrieve", make_retrieve_node(embedding, qdrant))
     workflow.add_node("rerank", make_rerank_node(reranker))
-    workflow.add_node("grade_documents", make_grade_documents_node(llm))
+    workflow.add_node("grade_documents", make_grade_documents_node())
     workflow.add_node("expand_context", make_expand_context_node(qdrant))
     workflow.add_node("generate", make_generate_node(llm, model_name))
     workflow.add_node("rewrite_query", make_rewrite_query_node(llm))
@@ -98,11 +98,18 @@ def build_graph(
     return workflow.compile()
 
 
+_cached_graph = None
+
+
 async def create_default_graph():
-    """Create graph with default services — async initialization for non-blocking setup."""
+    """Create graph with default services — cached to avoid re-initialization on every access."""
+    global _cached_graph
+    if _cached_graph is not None:
+        return _cached_graph
     settings = get_settings()
     embedding = EmbeddingService(settings)
     qdrant = await QdrantService.create(settings)  # Async factory for Qdrant
     reranker = RerankerService(settings)
     llm = create_llm(settings)
-    return build_graph(embedding, qdrant, reranker, llm)
+    _cached_graph = build_graph(embedding, qdrant, reranker, llm)
+    return _cached_graph

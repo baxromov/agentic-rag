@@ -124,6 +124,11 @@ services:
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       MODEL_SERVER_URL: http://model-server:8080
       LANGGRAPH_API_URL: http://langgraph-server:8000
+      # Disable all LangSmith/LangChain phone-home (corporate SSL blocks api.smith.langchain.com)
+      LANGCHAIN_TRACING_V2: "false"
+      LANGCHAIN_TRACING: "false"
+      LANGSMITH_TRACING: "false"
+      LANGSMITH_API_KEY: ""
       # Disable SSL verification for corporate network
       SSL_CERT_FILE: ""
       REQUESTS_CA_BUNDLE: ""
@@ -166,6 +171,11 @@ services:
       QDRANT_URL: http://qdrant:6333
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       MODEL_SERVER_URL: http://model-server:8080
+      # Disable all LangSmith/LangChain phone-home (corporate SSL blocks api.smith.langchain.com)
+      LANGCHAIN_TRACING_V2: "false"
+      LANGCHAIN_TRACING: "false"
+      LANGSMITH_TRACING: "false"
+      LANGSMITH_API_KEY: ""
       # Disable SSL verification for corporate network
       SSL_CERT_FILE: ""
       REQUESTS_CA_BUNDLE: ""
