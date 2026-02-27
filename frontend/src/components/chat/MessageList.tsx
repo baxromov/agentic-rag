@@ -4,12 +4,15 @@
 
 import { useEffect, useRef } from "react";
 import { Message } from "./Message";
+import { SourceCitation } from "./SourceCitation";
 import { StreamingIndicator } from "./StreamingIndicator";
+import type { SourceDocument } from "../../types/api";
 
 interface MessageType {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  sources?: SourceDocument[];
 }
 
 interface MessageListProps {
@@ -94,7 +97,14 @@ export const MessageList: React.FC<MessageListProps> = ({
       ) : (
         <>
           {messages.map((message, idx) => (
-            <Message key={idx} message={message} />
+            <div key={idx}>
+              <Message message={message} />
+              {message.role === "assistant" && message.sources && message.sources.length > 0 && (
+                <div className="ml-11 mt-2">
+                  <SourceCitation sources={message.sources} />
+                </div>
+              )}
+            </div>
           ))}
 
           {isStreaming && currentResponse && (

@@ -3,9 +3,10 @@
  */
 
 import { useState } from 'react';
-import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, ChevronUpIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import type { SourceDocument } from '../../types/api';
 import { Badge } from '../common/Badge';
+import { API_BASE_URL } from '../../config/api';
 
 interface SourceCitationProps {
   sources: SourceDocument[];
@@ -17,14 +18,14 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
   if (sources.length === 0) return null;
 
   return (
-    <div className="w-full bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+    <div className="w-full bg-slate-800/50 rounded-lg border border-slate-700">
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-3 hover:bg-slate-800 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          <span className="text-sm font-medium text-slate-300">
             Sources
           </span>
           <Badge variant="info" size="sm">
@@ -44,7 +45,7 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
           {sources.map((source, index) => (
             <div
               key={index}
-              className="p-3 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700"
+              className="p-3 bg-slate-900 rounded border border-slate-700"
             >
               {/* Source metadata */}
               <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -68,10 +69,22 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                     Score: {source.score.toFixed(3)}
                   </Badge>
                 )}
+                {source.document_id && (
+                  <a
+                    href={`${API_BASE_URL}/documents/${source.document_id}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ArrowDownTrayIcon className="h-3 w-3" />
+                    Download
+                  </a>
+                )}
               </div>
 
               {/* Text preview */}
-              <p className="text-sm text-slate-700 dark:text-slate-300 line-clamp-3">
+              <p className="text-sm text-slate-300 line-clamp-3">
                 {source.text}
               </p>
             </div>

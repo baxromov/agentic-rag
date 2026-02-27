@@ -40,6 +40,7 @@ def create_llm(settings: Settings) -> BaseChatModel:
             return ChatOllama(
                 model=settings.ollama_model,
                 base_url=settings.ollama_base_url,
+                timeout=300,
             )
         case _:
             raise ValueError(f"Unknown LLM provider: {settings.llm_provider}")

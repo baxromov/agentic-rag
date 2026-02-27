@@ -21,6 +21,7 @@ from src.services.embedding import EmbeddingService
 from src.services.llm import create_llm
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
+from src.utils.langfuse_integration import get_langfuse_callbacks
 
 
 def build_graph(
@@ -41,6 +42,11 @@ def build_graph(
     settings = get_settings()
     if llm is None:
         llm = create_llm(settings)
+
+    # Inject Langfuse callbacks for tracing
+    langfuse_callbacks = get_langfuse_callbacks()
+    if langfuse_callbacks:
+        llm = llm.with_config({"callbacks": langfuse_callbacks})
 
     # Determine model name for context window management
     if model_name is None:

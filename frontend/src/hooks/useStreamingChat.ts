@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef } from "react";
 import { API_BASE_URL } from "../config/api";
+import type { SourceDocument } from "../types/api";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  sources?: SourceDocument[];
 }
 
 interface StreamEvent {
@@ -97,6 +99,7 @@ export const useStreamingChat = () => {
                       role: "assistant",
                       content: event.data.answer || "",
                       timestamp: new Date(),
+                      sources: event.data.sources || [],
                     };
                     setMessages((prev) => [...prev, assistantMessage]);
                     setCurrentResponse("");

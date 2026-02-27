@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 
 from src.api.dependencies import get_ingestion_pipeline, get_minio_service, get_qdrant_service
 from src.ingestion.pipeline import IngestionPipeline
@@ -67,6 +68,40 @@ async def delete_document(
         return DocumentDeleteResponse(document_id=document_id, deleted=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/download")
+def download_document(
+    document_id: str,
+    minio: MinioService = Depends(get_minio_service),
+):
+    """Download the original document file by document_id."""
+    # List objects under this document's prefix
+    objects = minio.list_objects(prefix=f"{document_id}/")
+    if not objects:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Use the first object (the original file)
+    obj_key = objects[0]["key"]
+    filename = obj_key.split("/")[-1]
+
+    # Determine content type from extension
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_types = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "txt": "text/plain",
+        "csv": "text/csv",
+    }
+    content_type = content_types.get(ext, "application/octet-stream")
+
+    file_bytes = minio.download(obj_key)
+    return Response(
+        content=file_bytes,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/knowledge-base", response_model=KnowledgeBaseResponse)

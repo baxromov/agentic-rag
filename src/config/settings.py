@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     # -- Ingestion --
     enable_hypothetical_questions: bool = True
 
+    # -- Langfuse --
+    langfuse_host: str = ""
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_enabled: bool = False
+
     # -- Agent --
     max_retries: int = 3
 

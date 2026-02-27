@@ -103,13 +103,15 @@ async def stream_chat(request: StreamChatRequest):
             values = state.get("values", {})
             context_meta = values.get("context_metadata", {})
 
+            raw_docs = values.get("documents", [])
             final_data = {
                 "event": "generation",
                 "data": {
                     "answer": values.get("generation", ""),
                     "query": values.get("query", query),
                     "retries": values.get("retries", 0),
-                    "sources_count": len(values.get("documents", [])),
+                    "sources_count": len(raw_docs),
+                    "sources": _serialize_sources(raw_docs),
                     "thread_id": thread_id,
                     "context_metadata": context_meta,
                 },
@@ -240,6 +242,7 @@ async def websocket_chat(websocket: WebSocket):
                 state = await client.threads.get_state(thread_id)
                 values = state.get("values", {})
                 context_meta = values.get("context_metadata", {})
+                raw_docs = values.get("documents", [])
                 await websocket.send_text(
                     ChatEvent(
                         event="generation",
@@ -247,9 +250,10 @@ async def websocket_chat(websocket: WebSocket):
                             "answer": values.get("generation", ""),
                             "query": values.get("query", query),
                             "retries": values.get("retries", 0),
-                            "sources_count": len(values.get("documents", [])),
+                            "sources_count": len(raw_docs),
+                            "sources": _serialize_sources(raw_docs),
                             "thread_id": thread_id,
-                            "context_metadata": context_meta,  # Include token usage info
+                            "context_metadata": context_meta,
                         },
                     ).model_dump_json()
                 )
@@ -279,6 +283,33 @@ async def websocket_chat(websocket: WebSocket):
 
     except WebSocketDisconnect:
         pass
+
+
+def _serialize_sources(documents: list) -> list[dict]:
+    """Convert raw document dicts to SourceDocument-compatible dicts."""
+    sources = []
+    for doc in documents:
+        if isinstance(doc, dict):
+            metadata = doc.get("metadata", {})
+            sources.append({
+                "text": doc.get("page_content", "")[:500],
+                "score": metadata.get("score"),
+                "page_number": metadata.get("page_number"),
+                "source": metadata.get("source"),
+                "language": metadata.get("language"),
+                "document_id": metadata.get("document_id"),
+            })
+        elif hasattr(doc, "page_content"):
+            metadata = doc.metadata if hasattr(doc, "metadata") else {}
+            sources.append({
+                "text": doc.page_content[:500],
+                "score": metadata.get("score"),
+                "page_number": metadata.get("page_number"),
+                "source": metadata.get("source"),
+                "language": metadata.get("language"),
+                "document_id": metadata.get("document_id"),
+            })
+    return sources
 
 
 def _serialize_output(output: dict) -> dict:

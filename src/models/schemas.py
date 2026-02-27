@@ -81,6 +81,7 @@ class SourceDocument(BaseModel):
     page_number: int | None = None
     source: str | None = None
     language: str | None = None
+    document_id: str | None = None
 
 
 class QueryResponse(BaseModel):

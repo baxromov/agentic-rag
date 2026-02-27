@@ -19,6 +19,7 @@ export interface SourceDocument {
   page_number?: number | null;
   source?: string | null;
   language?: string | null;
+  document_id?: string | null;
 }
 
 export interface DocumentUploadResponse {

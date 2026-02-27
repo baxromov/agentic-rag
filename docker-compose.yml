@@ -135,6 +135,10 @@ services:
       CURL_CA_BUNDLE: ""
       PYTHONHTTPSVERIFY: "0"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
     depends_on:
       minio:
         condition: service_healthy
@@ -184,6 +188,10 @@ services:
       CURL_CA_BUNDLE: ""
       PYTHONHTTPSVERIFY: "0"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
     depends_on:
       minio:
         condition: service_healthy
@@ -199,6 +207,42 @@ services:
       - rag-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # -- Langfuse PostgreSQL (separate from LangGraph) --
+  langfuse-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    ports:
+      - "5433:5432"
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # -- Langfuse (LLM Observability) --
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: langfuse-secret-change-me
+      SALT: langfuse-salt-change-me
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+    networks:
+      - rag-network
 
   # -- Frontend Dev Server (Vite) --
   frontend:
@@ -222,6 +266,7 @@ volumes:
   qdrant_data:
   redis_data:
   postgres_data:
+  langfuse_postgres_data:
   frontend_node_modules:
 
 networks:
