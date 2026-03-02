@@ -15,12 +15,14 @@ Agentic RAG (Retrieval-Augmented Generation) framework for Ipoteka Bank. Documen
 - **Embeddings**: Ollama nomic-embed-text (768-dim), batched via httpx
 - **Reranker**: jinaai/jina-reranker-v2-base-multilingual via model-server (FastEmbed)
 - **LLM**: Multi-provider (Claude, OpenAI, Ollama) — configured via `LLM_PROVIDER` in `.env`
+- **Auth DB**: MongoDB (users, feedback)
 - **State**: LangGraph with PostgreSQL persistence + Redis pub/sub
+- **Observability**: Langfuse (optional, via `LANGFUSE_ENABLED`)
 
 ## Running
 
 ```bash
-docker compose up              # all 7 services (minio, qdrant, redis, postgres, model-server, fastapi, langgraph-server, frontend)
+docker compose up              # all services (minio, qdrant, redis, mongodb, postgres, model-server, fastapi, langgraph-server, langfuse, frontend)
 docker compose up -d           # detached
 docker compose build fastapi langgraph-server  # rebuild after Python code changes
 docker compose up -d fastapi langgraph-server  # restart after rebuild
@@ -61,7 +63,7 @@ npm run lint      # eslint
 
 ```
 src/
-  agent/          # LangGraph agent: graph.py (StateGraph builder), nodes.py (5 node implementations), guardrails.py, prompts.py, prompt_factory.py
+  agent/          # LangGraph agent: graph.py (StateGraph builder), nodes.py (node implementations), guardrails.py, validators.py, prompts.py, prompt_factory.py
   api/            # FastAPI: app.py (factory), auth_dependencies.py, routes/ (chat, documents, health, query, sessions, feedback, auth, admin)
   config/         # settings.py (pydantic-settings, reads .env, @lru_cache singleton)
   ingestion/      # pipeline.py (upload→parse→chunk→embed→upsert), parser.py (unstructured), chunker.py
@@ -69,7 +71,7 @@ src/
   models/         # state.py (AgentState TypedDict w/ HITL fields), schemas.py (Pydantic models), auth.py
 model_server/     # Separate reranker HTTP server (FastEmbed-based)
 frontend/src/
-  components/     # chat/, knowledge/, dashboard/, analytics/, settings/, common/, layout/
+  components/     # chat/, knowledge/, dashboard/, analytics/, settings/, common/, layout/, auth/, admin/
   store/          # appStore.ts (Zustand), uploadStore.ts (upload queue), sessionStore.ts (chat sessions), authStore.ts (JWT auth)
   hooks/          # useStreamingChat.ts (SSE + sessions + HITL + feedback), useWebSocket.ts
   config/         # api.ts (dynamic hostname detection), apiClient.ts (JWT fetch wrapper with auto-refresh)
@@ -179,8 +181,12 @@ Key variables (see `src/config/settings.py` for all defaults):
 - `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` (default: `claude-sonnet-4-20250514`)
 - `OLLAMA_BASE_URL` / `OLLAMA_MODEL` (default: `llama3.1`)
 - `EMBEDDING_MODEL`: `nomic-embed-text:latest`, `EMBEDDING_DIM`: `768`
-- `CHUNK_SIZE=1000`, `CHUNK_OVERLAP=200`
-- `RETRIEVAL_TOP_K=10`, `RERANK_TOP_K=5`, `RRF_K=60`
+- `CHUNK_SIZE=500`, `CHUNK_OVERLAP=100`, `PARENT_CHUNK_SIZE=2000`
+- `RETRIEVAL_TOP_K=15`, `RETRIEVAL_PREFETCH_LIMIT=30`, `RERANK_TOP_K=7`, `RRF_K=40`
+- `MONGODB_URL` (default: `mongodb://mongodb:27017`)
+- `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES=30`, `REFRESH_TOKEN_EXPIRE_DAYS=7`
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — seeded admin user on startup
+- `LANGFUSE_ENABLED`, `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`
 
 ## Common Tasks
 
