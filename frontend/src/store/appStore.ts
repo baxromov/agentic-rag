@@ -7,6 +7,7 @@ import type { Message } from '../types/message';
 import type { ContextMetadata, RuntimeContext } from '../types/api';
 import type { AppSettings } from '../types/settings';
 import { DEFAULT_SETTINGS } from '../types/settings';
+import { API_BASE_URL } from '../config/api';
 
 export type WSStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -42,7 +43,7 @@ interface AppState {
   setIsStreaming: (streaming: boolean) => void;
   setCurrentNode: (node: string | null) => void;
   updateSettings: (settings: Partial<AppSettings>) => void;
-  loadSettings: () => void;
+  loadSettings: () => Promise<void>;
   saveSettings: () => void;
   setCurrentMetadata: (metadata: ContextMetadata | null) => void;
   setShowSettings: (show: boolean) => void;
@@ -52,8 +53,6 @@ interface AppState {
   clearWarnings: () => void;
   getRuntimeContext: () => RuntimeContext;
 }
-
-const SETTINGS_KEY = 'rag-settings-v1';
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
@@ -99,34 +98,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateSettings: (newSettings) => set((state) => {
     const settings = { ...state.settings, ...newSettings };
-    // Save to localStorage
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-    }
     return { settings };
   }),
 
-  loadSettings: () => {
+  loadSettings: async () => {
     try {
-      const saved = localStorage.getItem(SETTINGS_KEY);
-      if (saved) {
-        const settings = JSON.parse(saved);
-        set({ settings: { ...DEFAULT_SETTINGS, ...settings } });
+      const res = await fetch(`${API_BASE_URL}/admin/personalization`);
+      if (res.ok) {
+        const data = await res.json();
+        set({ settings: { ...DEFAULT_SETTINGS, ...data } });
       }
     } catch (error) {
-      console.error('Failed to load settings:', error);
+      console.error('Failed to load settings from API:', error);
     }
   },
 
   saveSettings: () => {
-    try {
-      const { settings } = get();
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-    }
+    // Settings are now saved via admin API, this is a no-op
   },
 
   setCurrentMetadata: (currentMetadata) => set({ currentMetadata }),

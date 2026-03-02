@@ -1,12 +1,13 @@
 /**
- * Source citation display with expandable accordion
+ * Source citation display with expandable accordion and document preview
  */
 
 import { useState } from 'react';
-import { ChevronDownIcon, ChevronUpIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, ChevronUpIcon, ArrowDownTrayIcon, EyeIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import type { SourceDocument } from '../../types/api';
 import { Badge } from '../common/Badge';
 import { API_BASE_URL } from '../../config/api';
+import { apiFetch } from '../../config/apiClient';
 
 interface SourceCitationProps {
   sources: SourceDocument[];
@@ -14,83 +15,258 @@ interface SourceCitationProps {
 
 export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<SourceDocument | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [chunks, setChunks] = useState<{ chunk_index: number; text: string; page_number: number | null }[]>([]);
+  const [chunksLoading, setChunksLoading] = useState(false);
 
   if (sources.length === 0) return null;
 
+  const isPdf = (source: string | null | undefined) =>
+    source?.toLowerCase().endsWith('.pdf') ?? false;
+
+  const openDocPreview = async (source: SourceDocument) => {
+    if (!source.document_id) return;
+    setPreviewDoc(source);
+    setPdfBlobUrl(null);
+    setChunks([]);
+
+    if (isPdf(source.source)) {
+      setPdfLoading(true);
+      try {
+        const res = await apiFetch(`${API_BASE_URL}/documents/${source.document_id}/preview`);
+        if (!res.ok) throw new Error('Failed');
+        const blob = await res.blob();
+        setPdfBlobUrl(URL.createObjectURL(blob));
+      } catch {
+        setPdfBlobUrl(null);
+      } finally {
+        setPdfLoading(false);
+      }
+    } else {
+      setChunksLoading(true);
+      try {
+        const res = await apiFetch(`${API_BASE_URL}/documents/${source.document_id}/chunks`);
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+        setChunks(data.chunks || []);
+      } catch {
+        setChunks([]);
+      } finally {
+        setChunksLoading(false);
+      }
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewDoc(null);
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+    setChunks([]);
+  };
+
+  const handleDownload = async (docId: string, filename: string) => {
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/documents/${docId}/download`);
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
+  };
+
   return (
-    <div className="w-full bg-slate-800/50 rounded-lg border border-slate-700">
-      {/* Header */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-slate-800 rounded-lg transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-300">
-            Sources
-          </span>
-          <Badge variant="info" size="sm">
-            {sources.length}
-          </Badge>
-        </div>
-        {isExpanded ? (
-          <ChevronUpIcon className="h-4 w-4 text-slate-500" />
-        ) : (
-          <ChevronDownIcon className="h-4 w-4 text-slate-500" />
-        )}
-      </button>
+    <>
+      <div className="w-full bg-slate-800/50 rounded-lg border border-slate-700">
+        {/* Header */}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center justify-between p-3 hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-300">
+              Sources
+            </span>
+            <Badge variant="info" size="sm">
+              {sources.length}
+            </Badge>
+          </div>
+          {isExpanded ? (
+            <ChevronUpIcon className="h-4 w-4 text-slate-500" />
+          ) : (
+            <ChevronDownIcon className="h-4 w-4 text-slate-500" />
+          )}
+        </button>
 
-      {/* Expanded content */}
-      {isExpanded && (
-        <div className="px-3 pb-3 space-y-2">
-          {sources.map((source, index) => (
-            <div
-              key={index}
-              className="p-3 bg-slate-900 rounded border border-slate-700"
-            >
-              {/* Source metadata */}
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                {source.source && (
-                  <Badge variant="default" size="sm">
-                    {source.source}
-                  </Badge>
-                )}
-                {source.page_number !== null && source.page_number !== undefined && (
-                  <Badge variant="default" size="sm">
-                    Page {source.page_number}
-                  </Badge>
-                )}
-                {source.language && (
-                  <Badge variant="default" size="sm">
-                    {source.language.toUpperCase()}
-                  </Badge>
-                )}
-                {source.score !== null && source.score !== undefined && (
-                  <Badge variant="info" size="sm">
-                    Score: {source.score.toFixed(3)}
-                  </Badge>
-                )}
-                {source.document_id && (
-                  <a
-                    href={`${API_BASE_URL}/documents/${source.document_id}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded transition-colors"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <ArrowDownTrayIcon className="h-3 w-3" />
-                    Download
-                  </a>
-                )}
+        {/* Expanded content */}
+        {isExpanded && (
+          <div className="px-3 pb-3 space-y-2">
+            {sources.map((source, index) => (
+              <div
+                key={index}
+                className="p-3 bg-slate-900 rounded border border-slate-700"
+              >
+                {/* Source metadata */}
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  {source.source && (
+                    <Badge variant="default" size="sm">
+                      {source.source}
+                    </Badge>
+                  )}
+                  {source.page_number !== null && source.page_number !== undefined && (
+                    <Badge variant="default" size="sm">
+                      Page {source.page_number}
+                    </Badge>
+                  )}
+                  {source.language && (
+                    <Badge variant="default" size="sm">
+                      {source.language.toUpperCase()}
+                    </Badge>
+                  )}
+                  {source.score !== null && source.score !== undefined && (
+                    <Badge variant="info" size="sm">
+                      Score: {source.score.toFixed(3)}
+                    </Badge>
+                  )}
+                  {source.document_id && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDocPreview(source);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded transition-colors"
+                      >
+                        <EyeIcon className="h-3 w-3" />
+                        Preview
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownload(source.document_id!, source.source || 'document');
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded transition-colors"
+                      >
+                        <ArrowDownTrayIcon className="h-3 w-3" />
+                        Download
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Text preview */}
+                <p className="text-sm text-slate-300 line-clamp-3">
+                  {source.text}
+                </p>
               </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-              {/* Text preview */}
-              <p className="text-sm text-slate-300 line-clamp-3">
-                {source.text}
-              </p>
+      {/* Document Preview Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-800 flex-shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-slate-100 truncate">
+                  {previewDoc.source || 'Document'}
+                </h3>
+                <div className="flex items-center gap-2 mt-1">
+                  {previewDoc.page_number != null && (
+                    <span className="text-xs text-slate-400">Page {previewDoc.page_number}</span>
+                  )}
+                  {previewDoc.language && (
+                    <span className="text-xs text-slate-400 uppercase">{previewDoc.language}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {previewDoc.document_id && (
+                  <button
+                    onClick={() => handleDownload(previewDoc.document_id!, previewDoc.source || 'document')}
+                    className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                    title="Download"
+                  >
+                    <ArrowDownTrayIcon className="w-5 h-5 text-blue-400" />
+                  </button>
+                )}
+                <button
+                  onClick={closePreview}
+                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                >
+                  <XMarkIcon className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
             </div>
-          ))}
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto">
+              {isPdf(previewDoc.source) ? (
+                pdfLoading ? (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="text-center">
+                      <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                      <p className="text-slate-400 text-sm">Loading PDF...</p>
+                    </div>
+                  </div>
+                ) : pdfBlobUrl ? (
+                  <iframe
+                    src={pdfBlobUrl}
+                    className="w-full h-[70vh] border-0"
+                    title={`Preview: ${previewDoc.source}`}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-64 text-slate-500">
+                    <p>Failed to load PDF</p>
+                  </div>
+                )
+              ) : chunksLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                    <p className="text-slate-400 text-sm">Loading content...</p>
+                  </div>
+                </div>
+              ) : chunks.length > 0 ? (
+                <div className="p-5 space-y-1">
+                  {chunks.map((chunk, idx) => (
+                    <div key={chunk.chunk_index}>
+                      {chunk.page_number != null && (idx === 0 || chunks[idx - 1]?.page_number !== chunk.page_number) && (
+                        <div className="flex items-center gap-2 mt-3 mb-2 first:mt-0">
+                          <div className="h-px flex-1 bg-slate-700"></div>
+                          <span className="text-xs text-slate-500 font-medium">Page {chunk.page_number}</span>
+                          <div className="h-px flex-1 bg-slate-700"></div>
+                        </div>
+                      )}
+                      <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                        {chunk.text}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-64 text-slate-500">
+                  <p>No content available</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 };

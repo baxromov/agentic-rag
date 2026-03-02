@@ -64,6 +64,21 @@ services:
     networks:
       - rag-network
 
+  # -- MongoDB (Auth & settings) --
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
   # -- PostgreSQL (LangGraph state persistence) --
   postgres:
     image: postgres:16-alpine
@@ -94,6 +109,8 @@ services:
       SSL_VERIFY_DISABLE: "1"
       HF_HUB_DISABLE_XET: "1"
       HF_HUB_DOWNLOAD_TIMEOUT: "600"
+    volumes:
+      - model_cache:/root/.cache
     healthcheck:
       test:
         [
@@ -135,10 +152,17 @@ services:
       CURL_CA_BUNDLE: ""
       PYTHONHTTPSVERIFY: "0"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
-      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
+      # Disable Langfuse SDK auto-init and LangGraph OTLP exporter when Langfuse is off
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_ENABLED:-false}
+      OTEL_TRACES_EXPORTER: "none"
+      MONGODB_URL: mongodb://mongodb:27017
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-super-secret-jwt-key-change-in-production}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
     depends_on:
       minio:
         condition: service_healthy
@@ -149,6 +173,8 @@ services:
       postgres:
         condition: service_healthy
       model-server:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
       langgraph-server:
         condition: service_started
@@ -188,10 +214,13 @@ services:
       CURL_CA_BUNDLE: ""
       PYTHONHTTPSVERIFY: "0"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
-      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
+      # Disable Langfuse SDK auto-init and LangGraph OTLP exporter when Langfuse is off
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_ENABLED:-false}
+      OTEL_TRACES_EXPORTER: "none"
     depends_on:
       minio:
         condition: service_healthy
@@ -237,10 +266,17 @@ services:
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: langfuse-secret-change-me
       SALT: langfuse-salt-change-me
+      HOSTNAME: "0.0.0.0"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
     depends_on:
       langfuse-postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://0.0.0.0:3000/api/public/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - rag-network
 
@@ -266,7 +302,9 @@ volumes:
   qdrant_data:
   redis_data:
   postgres_data:
+  mongodb_data:
   langfuse_postgres_data:
+  model_cache:
   frontend_node_modules:
 
 networks:

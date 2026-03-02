@@ -62,30 +62,37 @@ npm run lint      # eslint
 ```
 src/
   agent/          # LangGraph agent: graph.py (StateGraph builder), nodes.py (5 node implementations), guardrails.py, prompts.py, prompt_factory.py
-  api/            # FastAPI: app.py (factory), dependencies.py, routes/ (chat, documents, health, query)
+  api/            # FastAPI: app.py (factory), auth_dependencies.py, routes/ (chat, documents, health, query, sessions, feedback, auth, admin)
   config/         # settings.py (pydantic-settings, reads .env, @lru_cache singleton)
   ingestion/      # pipeline.py (upload→parse→chunk→embed→upsert), parser.py (unstructured), chunker.py
-  services/       # llm.py, embedding.py, qdrant_client.py, minio_client.py, reranker.py, context_manager.py
-  models/         # state.py (AgentState TypedDict), schemas.py (Pydantic request/response models)
+  services/       # llm.py, embedding.py, qdrant_client.py, minio_client.py, reranker.py, context_manager.py, mongodb.py, auth.py
+  models/         # state.py (AgentState TypedDict w/ HITL fields), schemas.py (Pydantic models), auth.py
 model_server/     # Separate reranker HTTP server (FastEmbed-based)
 frontend/src/
   components/     # chat/, knowledge/, dashboard/, analytics/, settings/, common/, layout/
-  store/          # appStore.ts (Zustand), uploadStore.ts (background upload queue with localStorage persistence)
-  hooks/          # useStreamingChat.ts (SSE over POST), useWebSocket.ts
-  config/         # api.ts (dynamic hostname detection for LAN/localhost)
-  types/          # api.ts, message.ts, settings.ts
+  store/          # appStore.ts (Zustand), uploadStore.ts (upload queue), sessionStore.ts (chat sessions), authStore.ts (JWT auth)
+  hooks/          # useStreamingChat.ts (SSE + sessions + HITL + feedback), useWebSocket.ts
+  config/         # api.ts (dynamic hostname detection), apiClient.ts (JWT fetch wrapper with auto-refresh)
+  types/          # api.ts, message.ts, settings.ts, session.ts (ChatSession, MessageFeedback), auth.ts
 ```
 
 ## Agent Flow
 
 ```
-retrieve → rerank → grade_documents ─┬→ generate → END
-                                      └→ rewrite_query → retrieve (max 3 retries)
+intent_router ─┬→ greeting_response → END
+               └→ query_prepare → retrieve → rerank → grade_documents → human_feedback
+                   ─┬→ expand_context → generate → END
+                    └→ rewrite_query → retrieve (max 3 retries)
 ```
 
+- **intent_router**: Pattern-based classification (greeting/thanks/hr_query) — no LLM
+- **greeting_response**: Multilingual greeting (uz/ru/en) — no LLM
+- **query_prepare**: Rewrites query + multi-query + step-back + filters in ONE LLM call
 - **retrieve**: Hybrid search (dense + full-text) with RRF fusion, 10% language boost for same-language docs
 - **rerank**: Cross-encoder via model-server HTTP call
-- **grade_documents**: LLM binary relevance check — decides generate vs rewrite
+- **grade_documents**: Reranker score threshold filter — triggers HITL if all scores < 0.25 after retry
+- **human_feedback**: LangGraph `interrupt()` — pauses graph for user clarification when triggered
+- **expand_context**: Parent/neighbor chunk expansion
 - **generate**: Response with context budget management
 - **rewrite_query**: LLM reformulates query on grading failure
 
@@ -93,8 +100,25 @@ retrieve → rerank → grade_documents ─┬→ generate → END
 
 ### Chat: `POST /chat/stream` → SSE
 1. Input validation (guardrails: injection detection, PII masking, length limits)
-2. LangGraph graph execution (retrieve → rerank → grade → generate/rewrite loop)
-3. SSE events: `thread_created`, `node_end` (per node), `generation` (final answer + sources)
+2. Session resolution: use existing `session_id` or create new thread with user metadata
+3. LangGraph graph execution (intent → retrieve → rerank → grade → human_feedback → generate/rewrite loop)
+4. SSE events: `session_created`, `session_title`, `node_end` (per node), `clarification_needed` (HITL), `generation` (final answer + sources)
+5. Auto-title generation on first exchange via LLM
+
+### Chat Resume: `POST /chat/resume` → SSE
+- Resumes an interrupted graph after HITL clarification using `Command(resume=response)`
+
+### Sessions API (via LangGraph Server)
+- `GET /sessions` — list user's sessions (filtered by `user_id` in thread metadata)
+- `POST /sessions` — create new session
+- `GET /sessions/{id}/messages` — load messages from thread state
+- `PATCH /sessions/{id}` — update title
+- `DELETE /sessions/{id}` — delete session
+- All endpoints verify `thread.metadata.user_id == current_user_id`
+
+### Feedback API (via MongoDB)
+- `POST /feedback` — submit thumbs up/down (note required for down)
+- `GET /feedback/{thread_id}` — get feedback for a session
 
 ### Document Upload: `POST /documents/upload` → multipart
 1. Parse (unstructured library with Tesseract OCR)
@@ -135,6 +159,18 @@ Uses `@import "tailwindcss"` in index.css (not v3 `@tailwind` directives). CSS v
 
 ### Hybrid Search
 Qdrant uses RRF (Reciprocal Rank Fusion, k=60) to combine dense + full-text results. If text index is missing on collection, search silently falls back to dense only.
+
+### Chat Sessions
+Session management uses **LangGraph Server API** (`langgraph-sdk`) — no direct PostgreSQL access. Thread metadata stores `user_id`, `title`, `message_count`. Frontend `sessionStore.ts` (Zustand) tracks sessions list and `activeSessionId` (persisted to localStorage). Sidebar shows session list only on `/chat` route.
+
+### Human-in-the-Loop (HITL)
+When `grade_documents` detects all documents score < 0.25 after at least 1 retry, it sets `needs_clarification=True` with a multilingual question. The `human_feedback` node uses `langgraph.types.interrupt()` to pause the graph. Frontend shows `ClarificationPrompt` component. User response resumes via `POST /chat/resume` with `Command(resume=response)`.
+
+### Message Feedback
+Thumbs up/down stored in MongoDB `message_feedback` collection (indexed on `thread_id + message_index`). Frontend `MessageFeedback` component below each assistant message. Note required for thumbs down.
+
+### Authentication
+JWT-based auth with access + refresh tokens. `apiClient.ts` auto-attaches Bearer token and handles 401 with transparent refresh. MongoDB stores users. Admin seeded on startup via `lifespan`.
 
 ## Config (.env)
 

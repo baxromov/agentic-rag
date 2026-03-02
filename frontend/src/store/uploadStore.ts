@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API_BASE_URL } from "../config/api";
+import { apiFetch } from "../config/apiClient";
 
 export type UploadStatus = "pending" | "uploading" | "success" | "error";
 
@@ -191,7 +192,7 @@ async function processQueue() {
       const formData = new FormData();
       formData.append("file", next.file);
 
-      const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+      const response = await apiFetch(`${API_BASE_URL}/documents/upload`, {
         method: "POST",
         body: formData,
       });

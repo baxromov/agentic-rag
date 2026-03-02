@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -6,7 +7,39 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import chat, documents, health, query
+from src.api.routes import admin, auth, chat, documents, feedback, health, query, sessions
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Seed admin user on startup
+    from datetime import datetime, timezone
+
+    from src.config.settings import get_settings
+    from src.services.auth import hash_password
+    from src.services.mongodb import get_mongodb
+
+    settings = get_settings()
+    try:
+        db = await get_mongodb()
+        existing = await db.users.find_one({"role": "admin"})
+        if not existing:
+            await db.users.insert_one({
+                "username": settings.admin_username,
+                "password_hash": hash_password(settings.admin_password),
+                "role": "admin",
+                "full_name": "System Administrator",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc),
+                "last_login": None,
+            })
+            print(f"Admin user '{settings.admin_username}' created")
+        else:
+            print(f"Admin user already exists: '{existing['username']}'")
+    except Exception as e:
+        print(f"Warning: Could not seed admin user: {e}")
+
+    yield
 
 
 def create_app() -> FastAPI:
@@ -14,6 +47,7 @@ def create_app() -> FastAPI:
         title="MyAgenticRAGFramework",
         description="Agentic RAG with hybrid search, multilingual support, and multi-provider LLM",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     # CORS middleware — allows localhost + any LAN IP so the app works on local network
@@ -34,9 +68,13 @@ def create_app() -> FastAPI:
 
     # API routes
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(admin.router)
     app.include_router(documents.router)
     app.include_router(query.router)
     app.include_router(chat.router)
+    app.include_router(sessions.router)
+    app.include_router(feedback.router)
 
     # Static file serving for production frontend
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"

@@ -1,18 +1,22 @@
 /**
- * Scrollable message list with auto-scroll and streaming support
+ * Scrollable message list with auto-scroll, feedback, and HITL support
  */
 
 import { useEffect, useRef } from "react";
 import { Message } from "./Message";
 import { SourceCitation } from "./SourceCitation";
+import { MessageFeedback } from "./MessageFeedback";
+import { ClarificationPrompt } from "./ClarificationPrompt";
 import { StreamingIndicator } from "./StreamingIndicator";
 import type { SourceDocument } from "../../types/api";
+import type { MessageFeedback as FeedbackType } from "../../types/session";
 
 interface MessageType {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
   sources?: SourceDocument[];
+  messageIndex?: number;
 }
 
 interface MessageListProps {
@@ -20,6 +24,16 @@ interface MessageListProps {
   isStreaming: boolean;
   currentResponse: string;
   onSuggestionClick?: (message: string) => void;
+  feedbacks?: Record<number, FeedbackType>;
+  onSubmitFeedback?: (
+    messageIndex: number,
+    rating: "up" | "down",
+    note?: string,
+  ) => void;
+  clarificationQuestion?: string | null;
+  awaitingClarification?: boolean;
+  onRespondClarification?: (response: string) => void;
+  onSkipClarification?: () => void;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -27,12 +41,18 @@ export const MessageList: React.FC<MessageListProps> = ({
   isStreaming,
   currentResponse,
   onSuggestionClick,
+  feedbacks = {},
+  onSubmitFeedback,
+  clarificationQuestion,
+  awaitingClarification,
+  onRespondClarification,
+  onSkipClarification,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, currentResponse]);
+  }, [messages, currentResponse, awaitingClarification]);
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
@@ -99,11 +119,24 @@ export const MessageList: React.FC<MessageListProps> = ({
           {messages.map((message, idx) => (
             <div key={idx}>
               <Message message={message} />
-              {message.role === "assistant" && message.sources && message.sources.length > 0 && (
-                <div className="ml-11 mt-2">
-                  <SourceCitation sources={message.sources} />
-                </div>
-              )}
+              {message.role === "assistant" &&
+                message.sources &&
+                message.sources.length > 0 && (
+                  <div className="ml-11 mt-2">
+                    <SourceCitation sources={message.sources} />
+                  </div>
+                )}
+              {message.role === "assistant" &&
+                onSubmitFeedback &&
+                message.messageIndex !== undefined && (
+                  <div className="ml-11 mt-1">
+                    <MessageFeedback
+                      messageIndex={message.messageIndex}
+                      existingFeedback={feedbacks[message.messageIndex]}
+                      onSubmit={onSubmitFeedback}
+                    />
+                  </div>
+                )}
             </div>
           ))}
 
@@ -145,6 +178,18 @@ export const MessageList: React.FC<MessageListProps> = ({
           )}
 
           {isStreaming && !currentResponse && <StreamingIndicator />}
+
+          {/* Human-in-the-Loop clarification */}
+          {awaitingClarification &&
+            clarificationQuestion &&
+            onRespondClarification &&
+            onSkipClarification && (
+              <ClarificationPrompt
+                question={clarificationQuestion}
+                onRespond={onRespondClarification}
+                onSkip={onSkipClarification}
+              />
+            )}
         </>
       )}
       <div ref={messagesEndRef} />

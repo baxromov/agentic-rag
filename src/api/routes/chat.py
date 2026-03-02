@@ -1,13 +1,14 @@
 import json
 import time
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langgraph_sdk import get_client
 from pydantic import BaseModel
 
 from src.agent.guardrails import GuardrailViolation, validate_input
+from src.api.auth_dependencies import get_current_user
 from src.config.settings import get_settings
 from src.models.schemas import ChatEvent
 from src.utils.telemetry import logger
@@ -17,16 +18,45 @@ router = APIRouter(tags=["chat"])
 
 class StreamChatRequest(BaseModel):
     query: str
-    thread_id: str | None = None
+    session_id: str | None = None
+    thread_id: str | None = None  # Legacy compat
     filters: dict | None = None
     context: dict | None = None
 
 
+class ResumeRequest(BaseModel):
+    session_id: str
+    response: str
+
+
+async def _generate_title(client, query: str, settings) -> str:
+    """Generate a short title for the conversation from the first message."""
+    try:
+        from langchain_core.messages import HumanMessage as HM, SystemMessage as SM
+        from src.services.llm import create_llm
+
+        llm = create_llm(settings)
+        messages = [
+            SM(content="Generate a concise chat title (3-6 words, no quotes) for a conversation that starts with the following message. Reply with ONLY the title, nothing else."),
+            HM(content=query),
+        ]
+        response = await llm.ainvoke(messages)
+        title = response.content.strip().strip('"').strip("'")
+        # Limit length
+        if len(title) > 60:
+            title = title[:57] + "..."
+        return title
+    except Exception as e:
+        logger.error("title_generation_failed", error=str(e))
+        return query[:40] + ("..." if len(query) > 40 else "")
+
+
 @router.post("/chat/stream")
-async def stream_chat(request: StreamChatRequest):
+async def stream_chat(request: StreamChatRequest, user: dict = Depends(get_current_user)):
     """Streaming chat endpoint using SSE (Server-Sent Events)."""
     settings = get_settings()
     client = get_client(url=settings.langgraph_api_url)
+    uid = str(user["_id"])
 
     async def event_generator():
         try:
@@ -35,7 +65,6 @@ async def stream_chat(request: StreamChatRequest):
             filters = request.filters
             runtime_context = request.context
 
-            # Log incoming request
             logger.info(
                 "stream_request_received",
                 query_length=len(query),
@@ -53,24 +82,40 @@ async def stream_chat(request: StreamChatRequest):
                 processed_query = input_validation["masked_query"]
                 guardrail_warnings = input_validation.get("warnings", [])
 
-                # Send warning if PII was masked
                 if guardrail_warnings:
                     yield f"data: {json.dumps({'event': 'warning', 'data': {'message': 'Input processed by security guardrails', 'warnings': guardrail_warnings}})}\n\n"
             except GuardrailViolation as e:
                 yield f"data: {json.dumps({'event': 'error', 'data': {'message': f'Security check failed: {str(e)}'}})}\n\n"
                 return
 
-            # Create or reuse thread
-            thread_id = request.thread_id
-            if not thread_id:
-                thread = await client.threads.create()
-                thread_id = thread["thread_id"]
-                yield f"data: {json.dumps({'event': 'thread_created', 'data': {'thread_id': thread_id}})}\n\n"
+            # Resolve session/thread
+            session_id = request.session_id or request.thread_id
+            is_new_session = False
+
+            if session_id:
+                # Verify ownership
+                try:
+                    thread = await client.threads.get(session_id)
+                    meta = thread.get("metadata", {}) or {}
+                    if meta.get("user_id") != uid:
+                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'Access denied'}})}\n\n"
+                        return
+                except Exception:
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'Session not found'}})}\n\n"
+                    return
+            else:
+                # Create new session
+                thread = await client.threads.create(
+                    metadata={"user_id": uid, "title": "New Chat", "message_count": 0}
+                )
+                session_id = thread["thread_id"]
+                is_new_session = True
+                yield f"data: {json.dumps({'event': 'session_created', 'data': {'session_id': session_id, 'thread_id': session_id}})}\n\n"
 
             # Load previous messages
             previous_messages = []
             try:
-                state = await client.threads.get_state(thread_id)
+                state = await client.threads.get_state(session_id)
                 previous_messages = state.get("values", {}).get("messages", [])
             except Exception:
                 previous_messages = []
@@ -80,7 +125,7 @@ async def stream_chat(request: StreamChatRequest):
 
             # Stream the graph execution
             async for chunk in client.runs.stream(
-                thread_id=thread_id,
+                thread_id=session_id,
                 assistant_id="rag_agent",
                 input={
                     "messages": previous_messages + [new_message],
@@ -91,38 +136,66 @@ async def stream_chat(request: StreamChatRequest):
                     "filters": filters,
                     "context_metadata": None,
                     "runtime_context": runtime_context,
+                    "needs_clarification": False,
+                    "clarification_question": None,
+                    "human_response": None,
                 },
                 stream_mode="updates",
             ):
-                if chunk.event == "updates":
+                if chunk.event == "updates" and chunk.data:
                     for node_name, node_output in chunk.data.items():
+                        if node_output is None:
+                            continue
                         yield f"data: {json.dumps({'event': 'node_end', 'node': node_name, 'data': _serialize_output(node_output)})}\n\n"
 
-            # Get final state
-            state = await client.threads.get_state(thread_id)
+            # Get final state — check for interrupt
+            state = await client.threads.get_state(session_id)
             values = state.get("values", {})
-            context_meta = values.get("context_metadata", {})
 
-            raw_docs = values.get("documents", [])
-            final_data = {
-                "event": "generation",
-                "data": {
-                    "answer": values.get("generation", ""),
-                    "query": values.get("query", query),
-                    "retries": values.get("retries", 0),
-                    "sources_count": len(raw_docs),
-                    "sources": _serialize_sources(raw_docs),
-                    "thread_id": thread_id,
-                    "context_metadata": context_meta,
-                },
-            }
-            yield f"data: {json.dumps(final_data)}\n\n"
+            # Check for HITL interrupt
+            if values.get("needs_clarification") and values.get("clarification_question"):
+                yield f"data: {json.dumps({'event': 'clarification_needed', 'data': {'question': values['clarification_question'], 'session_id': session_id}})}\n\n"
+            else:
+                # Normal generation response
+                context_meta = values.get("context_metadata", {})
+                raw_docs = values.get("documents", [])
+                final_data = {
+                    "event": "generation",
+                    "data": {
+                        "answer": values.get("generation", ""),
+                        "query": values.get("query", query),
+                        "retries": values.get("retries", 0),
+                        "sources_count": len(raw_docs),
+                        "sources": _serialize_sources(raw_docs),
+                        "thread_id": session_id,
+                        "session_id": session_id,
+                        "context_metadata": context_meta,
+                    },
+                }
+                yield f"data: {json.dumps(final_data)}\n\n"
+
+            # Update metadata: message count
+            try:
+                thread_data = await client.threads.get(session_id)
+                meta = thread_data.get("metadata", {}) or {}
+                msg_count = meta.get("message_count", 0) + 2  # user + assistant
+                updated_meta = {**meta, "message_count": msg_count}
+
+                # Auto-generate title on first exchange
+                if is_new_session or meta.get("title") == "New Chat":
+                    title = await _generate_title(client, query, settings)
+                    updated_meta["title"] = title
+                    yield f"data: {json.dumps({'event': 'session_title', 'data': {'session_id': session_id, 'title': title}})}\n\n"
+
+                await client.threads.update(session_id, metadata=updated_meta)
+            except Exception as e:
+                logger.error("metadata_update_failed", error=str(e))
 
             # Log completion
             request_duration = int((time.time() - request_start) * 1000)
             logger.info(
                 "stream_request_completed",
-                thread_id=thread_id,
+                thread_id=session_id,
                 query_length=len(query),
                 total_duration_ms=request_duration,
             )
@@ -138,8 +211,89 @@ async def stream_chat(request: StreamChatRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+@router.post("/chat/resume")
+async def resume_chat(request: ResumeRequest, user: dict = Depends(get_current_user)):
+    """Resume a chat after human-in-the-loop clarification."""
+    settings = get_settings()
+    client = get_client(url=settings.langgraph_api_url)
+    uid = str(user["_id"])
+    session_id = request.session_id
+
+    # Verify ownership
+    thread = await client.threads.get(session_id)
+    meta = thread.get("metadata", {}) or {}
+    if meta.get("user_id") != uid:
+        return StreamingResponse(
+            iter([f"data: {json.dumps({'event': 'error', 'data': {'message': 'Access denied'}})}\n\n"]),
+            media_type="text/event-stream",
+        )
+
+    async def event_generator():
+        try:
+            from langgraph.types import Command
+
+            # Resume the interrupted graph with user's response
+            async for chunk in client.runs.stream(
+                thread_id=session_id,
+                assistant_id="rag_agent",
+                input=Command(resume=request.response),
+                stream_mode="updates",
+            ):
+                if chunk.event == "updates" and chunk.data:
+                    for node_name, node_output in chunk.data.items():
+                        if node_output is None:
+                            continue
+                        yield f"data: {json.dumps({'event': 'node_end', 'node': node_name, 'data': _serialize_output(node_output)})}\n\n"
+
+            # Get final state
+            state = await client.threads.get_state(session_id)
+            values = state.get("values", {})
+            context_meta = values.get("context_metadata", {})
+            raw_docs = values.get("documents", [])
+
+            final_data = {
+                "event": "generation",
+                "data": {
+                    "answer": values.get("generation", ""),
+                    "query": values.get("query", ""),
+                    "retries": values.get("retries", 0),
+                    "sources_count": len(raw_docs),
+                    "sources": _serialize_sources(raw_docs),
+                    "thread_id": session_id,
+                    "session_id": session_id,
+                    "context_metadata": context_meta,
+                },
+            }
+            yield f"data: {json.dumps(final_data)}\n\n"
+
+        except Exception as e:
+            logger.error("resume_failed", error=str(e))
+            yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @router.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
+    # Validate token from query params
+    token = websocket.query_params.get("token")
+    if token:
+        from src.services.auth import decode_token
+        from src.services.mongodb import get_mongodb
+
+        payload = decode_token(token)
+        if payload is None or payload.get("type") != "access":
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+        db = await get_mongodb()
+        user = await db.users.find_one({"username": payload.get("sub")})
+        if not user or not user.get("is_active", True):
+            await websocket.close(code=4001, reason="User not found")
+            return
+    else:
+        await websocket.close(code=4001, reason="Token required")
+        return
+
     await websocket.accept()
     settings = get_settings()
     client = get_client(url=settings.langgraph_api_url)
@@ -151,9 +305,8 @@ async def websocket_chat(websocket: WebSocket):
             message = json.loads(data)
             query = message.get("query", "")
             filters = message.get("filters")
-            runtime_context = message.get("context")  # User-specific runtime config
+            runtime_context = message.get("context")
 
-            # Log incoming request
             logger.info(
                 "websocket_request_received",
                 query_length=len(query) if query else 0,
@@ -170,11 +323,9 @@ async def websocket_chat(websocket: WebSocket):
             # Apply input guardrails
             try:
                 input_validation = validate_input(query)
-                # Use masked query if PII was detected
                 processed_query = input_validation["masked_query"]
                 guardrail_warnings = input_validation.get("warnings", [])
 
-                # Send warning if PII was masked
                 if guardrail_warnings:
                     await websocket.send_text(
                         ChatEvent(
@@ -194,25 +345,20 @@ async def websocket_chat(websocket: WebSocket):
                 continue
 
             try:
-                # Create a thread (or reuse thread_id from message)
                 thread_id = message.get("thread_id")
                 if not thread_id:
                     thread = await client.threads.create()
                     thread_id = thread["thread_id"]
 
-                # Load previous messages from thread state for multi-turn conversation
                 previous_messages = []
                 try:
                     state = await client.threads.get_state(thread_id)
                     previous_messages = state.get("values", {}).get("messages", [])
                 except Exception:
-                    # If thread doesn't exist yet or error loading, start with empty history
                     previous_messages = []
 
-                # Append new user query to conversation history (use processed query after guardrails)
                 new_message = HumanMessage(content=processed_query)
 
-                # Stream the graph execution (use processed_query after guardrails)
                 async for chunk in client.runs.stream(
                     thread_id=thread_id,
                     assistant_id="rag_agent",
@@ -224,12 +370,17 @@ async def websocket_chat(websocket: WebSocket):
                         "retries": 0,
                         "filters": filters,
                         "context_metadata": None,
-                        "runtime_context": runtime_context,  # User-specific configuration
+                        "runtime_context": runtime_context,
+                        "needs_clarification": False,
+                        "clarification_question": None,
+                        "human_response": None,
                     },
                     stream_mode="updates",
                 ):
-                    if chunk.event == "updates":
+                    if chunk.event == "updates" and chunk.data:
                         for node_name, node_output in chunk.data.items():
+                            if node_output is None:
+                                continue
                             await websocket.send_text(
                                 ChatEvent(
                                     event="node_end",
@@ -238,7 +389,6 @@ async def websocket_chat(websocket: WebSocket):
                                 ).model_dump_json()
                             )
 
-                # Get final state from thread
                 state = await client.threads.get_state(thread_id)
                 values = state.get("values", {})
                 context_meta = values.get("context_metadata", {})
@@ -258,7 +408,6 @@ async def websocket_chat(websocket: WebSocket):
                     ).model_dump_json()
                 )
 
-                # Log request completion
                 request_duration = int((time.time() - request_start) * 1000)
                 logger.info(
                     "websocket_request_completed",
@@ -270,7 +419,6 @@ async def websocket_chat(websocket: WebSocket):
                     context_metadata=context_meta,
                 )
             except Exception as e:
-                # Log error
                 logger.error(
                     "websocket_request_failed",
                     error_type=type(e).__name__,
@@ -312,7 +460,9 @@ def _serialize_sources(documents: list) -> list[dict]:
     return sources
 
 
-def _serialize_output(output: dict) -> dict:
+def _serialize_output(output: dict | None) -> dict:
+    if not output:
+        return {}
     serialized = {}
     for key, value in output.items():
         if key == "documents":

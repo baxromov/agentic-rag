@@ -290,6 +290,38 @@ class QdrantService:
         )
         return sorted(results, key=lambda p: p.payload.get("chunk_index", 0))
 
+    async def get_chunks_by_document_id(self, document_id: str) -> list[dict]:
+        """Get all chunks for a document, sorted by chunk_index."""
+        all_chunks = []
+        offset = None
+        while True:
+            results, next_offset = await self._client.scroll(
+                collection_name=self._collection,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=document_id),
+                        )
+                    ]
+                ),
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for p in results:
+                all_chunks.append({
+                    "chunk_index": p.payload.get("chunk_index", 0),
+                    "text": p.payload.get("text", ""),
+                    "page_number": p.payload.get("page_number"),
+                    "language": p.payload.get("language"),
+                })
+            if next_offset is None:
+                break
+            offset = next_offset
+        return sorted(all_chunks, key=lambda c: c["chunk_index"])
+
     async def delete_by_document_id(self, document_id: str) -> None:
         await self._client.delete(
             collection_name=self._collection,

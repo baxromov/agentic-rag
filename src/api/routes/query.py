@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from langgraph_sdk import get_client
 
+from src.api.auth_dependencies import get_current_user
 from src.config.settings import get_settings
 from src.models.schemas import QueryRequest, QueryResponse, SourceDocument
 
@@ -8,7 +9,7 @@ router = APIRouter(tags=["query"])
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
+async def query(request: QueryRequest, _user: dict = Depends(get_current_user)):
     settings = get_settings()
     client = get_client(url=settings.langgraph_api_url)
 

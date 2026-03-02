@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_enabled: bool = False
 
+    # -- MongoDB --
+    mongodb_url: str = "mongodb://mongodb:27017"
+
+    # -- JWT Auth --
+    jwt_secret_key: str = "super-secret-jwt-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+    admin_username: str = "admin"
+    admin_password: str = "admin123"
+
     # -- Agent --
     max_retries: int = 3
 

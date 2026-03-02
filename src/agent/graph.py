@@ -1,6 +1,7 @@
 import builtins as _builtins
 
 from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 
 from src.agent.nodes import (
     make_expand_context_node,
@@ -21,7 +22,30 @@ from src.services.embedding import EmbeddingService
 from src.services.llm import create_llm
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
-from src.utils.langfuse_integration import get_langfuse_callbacks
+from src.utils.telemetry import logger
+
+
+def make_human_feedback_node():
+    """Create a node that pauses the graph for human clarification via LangGraph interrupt."""
+
+    async def human_feedback(state):
+        if state.get("needs_clarification"):
+            question = state.get("clarification_question", "Could you clarify?")
+            response = interrupt(question)
+            # After resume, combine user response with original query
+            return {
+                "human_response": response,
+                "needs_clarification": False,
+                "clarification_question": None,
+                "query": f"{state['query']} ({response})",
+                "search_query": f"{state['query']} ({response})",
+                "search_queries": [f"{state['query']} ({response})"],
+                "documents": [],  # Clear docs to trigger re-retrieval
+                "retries": 0,
+            }
+        return {}
+
+    return human_feedback
 
 
 def build_graph(
@@ -42,11 +66,6 @@ def build_graph(
     settings = get_settings()
     if llm is None:
         llm = create_llm(settings)
-
-    # Inject Langfuse callbacks for tracing
-    langfuse_callbacks = get_langfuse_callbacks()
-    if langfuse_callbacks:
-        llm = llm.with_config({"callbacks": langfuse_callbacks})
 
     # Determine model name for context window management
     if model_name is None:
@@ -71,6 +90,7 @@ def build_graph(
     workflow.add_node("retrieve", make_retrieve_node(embedding, qdrant))
     workflow.add_node("rerank", make_rerank_node(reranker))
     workflow.add_node("grade_documents", make_grade_documents_node())
+    workflow.add_node("human_feedback", make_human_feedback_node())
     workflow.add_node("expand_context", make_expand_context_node(qdrant))
     workflow.add_node("generate", make_generate_node(llm, model_name))
     workflow.add_node("rewrite_query", make_rewrite_query_node(llm))
@@ -91,8 +111,9 @@ def build_graph(
     workflow.add_edge("query_prepare", "retrieve")
     workflow.add_edge("retrieve", "rerank")
     workflow.add_edge("rerank", "grade_documents")
+    workflow.add_edge("grade_documents", "human_feedback")
     workflow.add_conditional_edges(
-        "grade_documents",
+        "human_feedback",
         should_retry,
         {
             "generate": "expand_context",
@@ -107,15 +128,21 @@ def build_graph(
 
 
 async def create_default_graph():
-    """Create graph with default services — cached in builtins to survive module reloads."""
+    """Create graph with default services — cached in builtins to survive module reloads.
+
+    Langfuse callbacks are created per-LLM-call inside nodes (not attached
+    to the graph) so each invocation gets a fresh trace.
+    """
     cached = getattr(_builtins, "_rag_cached_graph", None)
     if cached is not None:
         return cached
+
     settings = get_settings()
     embedding = EmbeddingService(settings)
     qdrant = await QdrantService.create(settings)
     reranker = RerankerService(settings)
     llm = create_llm(settings)
     graph = build_graph(embedding, qdrant, reranker, llm)
+
     _builtins._rag_cached_graph = graph
     return graph

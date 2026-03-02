@@ -7,6 +7,7 @@ import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
 import { Button } from "./Button";
 import { ErrorAlert } from "./ErrorAlert";
 import { API_BASE_URL } from "../../config/api";
+import { apiFetch } from "../../config/apiClient";
 
 interface FileUploadProps {
   onUploadSuccess?: (result: {
@@ -45,7 +46,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+      const response = await apiFetch(`${API_BASE_URL}/documents/upload`, {
         method: "POST",
         body: formData,
       });

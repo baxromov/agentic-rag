@@ -1,9 +1,11 @@
 from collections import defaultdict
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from src.api.auth_dependencies import get_current_user, require_admin
 from src.api.dependencies import get_ingestion_pipeline, get_minio_service, get_qdrant_service
 from src.ingestion.pipeline import IngestionPipeline
 from src.models.schemas import (
@@ -24,6 +26,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 async def upload_document(
     file: UploadFile = File(...),
     pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
+    _user: dict = Depends(require_admin),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
@@ -47,7 +50,10 @@ async def upload_document(
 
 
 @router.get("/", response_model=DocumentListResponse)
-def list_documents(minio: MinioService = Depends(get_minio_service)):
+async def list_documents(
+    minio: MinioService = Depends(get_minio_service),
+    _user: dict = Depends(get_current_user),
+):
     objects = minio.list_objects()
     return DocumentListResponse(documents=objects)
 
@@ -57,6 +63,7 @@ async def delete_document(
     document_id: str,
     pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
     minio: MinioService = Depends(get_minio_service),
+    _user: dict = Depends(require_admin),
 ):
     try:
         # Delete vectors from Qdrant
@@ -71,9 +78,10 @@ async def delete_document(
 
 
 @router.get("/{document_id}/download")
-def download_document(
+async def download_document(
     document_id: str,
     minio: MinioService = Depends(get_minio_service),
+    _user: dict = Depends(get_current_user),
 ):
     """Download the original document file by document_id."""
     # List objects under this document's prefix
@@ -97,17 +105,70 @@ def download_document(
     content_type = content_types.get(ext, "application/octet-stream")
 
     file_bytes = minio.download(obj_key)
+    encoded_filename = quote(filename)
     return Response(
         content=file_bytes,
         media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+        },
     )
+
+
+@router.get("/{document_id}/preview")
+async def preview_document(
+    document_id: str,
+    minio: MinioService = Depends(get_minio_service),
+    _user: dict = Depends(get_current_user),
+):
+    """Serve the document file inline (e.g. PDF renders in browser)."""
+    objects = minio.list_objects(prefix=f"{document_id}/")
+    if not objects:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    obj_key = objects[0]["key"]
+    filename = obj_key.split("/")[-1]
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_types = {
+        "pdf": "application/pdf",
+        "txt": "text/plain; charset=utf-8",
+        "csv": "text/csv; charset=utf-8",
+        "md": "text/markdown; charset=utf-8",
+        "html": "text/html; charset=utf-8",
+        "htm": "text/html; charset=utf-8",
+    }
+    content_type = content_types.get(ext, "application/octet-stream")
+
+    file_bytes = minio.download(obj_key)
+    encoded_filename = quote(filename)
+    return Response(
+        content=file_bytes,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}",
+        },
+    )
+
+
+@router.get("/{document_id}/chunks")
+async def get_document_chunks(
+    document_id: str,
+    qdrant: QdrantService = Depends(get_qdrant_service),
+    _user: dict = Depends(get_current_user),
+):
+    """Get all text chunks for a document from Qdrant."""
+    chunks = await qdrant.get_chunks_by_document_id(document_id)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="No chunks found for this document")
+    return {"document_id": document_id, "total_chunks": len(chunks), "chunks": chunks}
 
 
 @router.get("/knowledge-base", response_model=KnowledgeBaseResponse)
 async def get_knowledge_base(
     minio: MinioService = Depends(get_minio_service),
     qdrant: QdrantService = Depends(get_qdrant_service),
+    _user: dict = Depends(get_current_user),
 ):
     """Get knowledge base with folder structure and document metadata."""
     # Get all objects from MinIO

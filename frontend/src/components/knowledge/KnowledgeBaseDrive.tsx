@@ -18,9 +18,12 @@ import {
   XMarkIcon,
   DocumentArrowUpIcon,
   ChevronDownIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import { useUploadStore } from "../../store/uploadStore";
+import { useAuthStore } from "../../store/authStore";
 import { API_BASE_URL } from "../../config/api";
+import { apiFetch } from "../../config/apiClient";
 
 interface DocumentMetadata {
   document_id: string;
@@ -116,6 +119,11 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const [ragSearching, setRagSearching] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<DocumentMetadata | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewTab, setPreviewTab] = useState<"preview" | "details">("preview");
+  const [chunks, setChunks] = useState<{ chunk_index: number; text: string; page_number: number | null; language: string | null }[]>([]);
+  const [chunksLoading, setChunksLoading] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showUploadMenu, setShowUploadMenu] = useState(false);
@@ -123,18 +131,19 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const uploadMenuRef = useRef<HTMLDivElement>(null);
   const { addFiles, tasks, isProcessing } = useUploadStore();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === "admin";
 
   const fetchKnowledgeBase = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/documents/knowledge-base`);
+      const response = await apiFetch(`${API_BASE_URL}/documents/knowledge-base`);
       if (!response.ok) throw new Error("Failed to fetch knowledge base");
       const result = await response.json();
       console.log("Fetched knowledge base data:", result);
       setData(result);
     } catch (err) {
       console.error("Failed to load knowledge base:", err);
-      alert(`Error loading knowledge base: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -149,7 +158,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
 
     setRagSearching(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/query`, {
+      const response = await apiFetch(`${API_BASE_URL}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,11 +176,65 @@ export const KnowledgeBaseDrive: React.FC = () => {
     }
   };
 
+  const isPdf = (doc: DocumentMetadata) => doc.file_type.toLowerCase() === "pdf";
+
+  const fetchChunks = async (docId: string) => {
+    setChunksLoading(true);
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/documents/${docId}/chunks`);
+      if (!response.ok) throw new Error("Failed to fetch chunks");
+      const result = await response.json();
+      setChunks(result.chunks || []);
+    } catch (err) {
+      console.error("Failed to fetch chunks:", err);
+      setChunks([]);
+    } finally {
+      setChunksLoading(false);
+    }
+  };
+
+  const fetchPdfBlob = async (docId: string) => {
+    setPdfLoading(true);
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/documents/${docId}/preview`);
+      if (!response.ok) throw new Error("Failed to fetch PDF");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      setPdfBlobUrl(url);
+    } catch (err) {
+      console.error("Failed to fetch PDF preview:", err);
+      setPdfBlobUrl(null);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const openPreview = (doc: DocumentMetadata) => {
+    setSelectedDoc(doc);
+    setShowPreview(true);
+    setPreviewTab("preview");
+    setChunks([]);
+    setPdfBlobUrl(null);
+    if (isPdf(doc)) {
+      fetchPdfBlob(doc.document_id);
+    } else {
+      fetchChunks(doc.document_id);
+    }
+  };
+
+  const closePreview = () => {
+    setShowPreview(false);
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+  };
+
   const handleDelete = async (docId: string) => {
     if (!confirm("Are you sure you want to delete this document?")) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/documents/${docId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/documents/${docId}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete document");
@@ -181,7 +244,27 @@ export const KnowledgeBaseDrive: React.FC = () => {
         setShowPreview(false);
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete document");
+      console.error("Failed to delete document:", err);
+    }
+  };
+
+  const handleDownload = async (doc: DocumentMetadata) => {
+    try {
+      const response = await apiFetch(
+        `${API_BASE_URL}/documents/${doc.document_id}/download`,
+      );
+      if (!response.ok) throw new Error("Download failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download failed:", err);
     }
   };
 
@@ -259,72 +342,76 @@ export const KnowledgeBaseDrive: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Upload Button with Dropdown */}
-            <div className="relative" ref={uploadMenuRef}>
-              <button
-                onClick={() => setShowUploadMenu(!showUploadMenu)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors shadow-sm"
-              >
-                <CloudArrowUpIcon className="w-5 h-5" />
-                <span className="font-medium">Upload</span>
-                <ChevronDownIcon className="w-4 h-4 ml-1" />
-              </button>
-              {showUploadMenu && (
-                <div className="absolute right-0 mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left"
-                  >
-                    <DocumentArrowUpIcon className="w-5 h-5 text-blue-400" />
-                    <div>
-                      <p className="text-sm font-medium">Upload Files</p>
-                      <p className="text-xs text-slate-400">
-                        Select one or more files
-                      </p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => folderInputRef.current?.click()}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left border-t border-slate-700"
-                  >
-                    <FolderArrowDownIcon className="w-5 h-5 text-purple-400" />
-                    <div>
-                      <p className="text-sm font-medium">Upload Folder</p>
-                      <p className="text-xs text-slate-400">
-                        Upload entire folder
-                      </p>
-                    </div>
-                  </button>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                onChange={handleFilesSelected}
-                className="hidden"
-                accept=".pdf,.docx,.doc,.xlsx,.csv,.html,.htm,.md,.txt"
-              />
-              <input
-                ref={folderInputRef}
-                type="file"
-                onChange={handleFilesSelected}
-                className="hidden"
-                {...({
-                  webkitdirectory: "",
-                  directory: "",
-                } as React.InputHTMLAttributes<HTMLInputElement>)}
-              />
-            </div>
+            {/* Upload Button with Dropdown (admin only) */}
+            {isAdmin && (
+              <div className="relative" ref={uploadMenuRef}>
+                <button
+                  onClick={() => setShowUploadMenu(!showUploadMenu)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors shadow-sm"
+                >
+                  <CloudArrowUpIcon className="w-5 h-5" />
+                  <span className="font-medium">Upload</span>
+                  <ChevronDownIcon className="w-4 h-4 ml-1" />
+                </button>
+                {showUploadMenu && (
+                  <div className="absolute right-0 mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left"
+                    >
+                      <DocumentArrowUpIcon className="w-5 h-5 text-blue-400" />
+                      <div>
+                        <p className="text-sm font-medium">Upload Files</p>
+                        <p className="text-xs text-slate-400">
+                          Select one or more files
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => folderInputRef.current?.click()}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left border-t border-slate-700"
+                    >
+                      <FolderArrowDownIcon className="w-5 h-5 text-purple-400" />
+                      <div>
+                        <p className="text-sm font-medium">Upload Folder</p>
+                        <p className="text-xs text-slate-400">
+                          Upload entire folder
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  onChange={handleFilesSelected}
+                  className="hidden"
+                  accept=".pdf,.docx,.doc,.xlsx,.csv,.html,.htm,.md,.txt"
+                />
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  onChange={handleFilesSelected}
+                  className="hidden"
+                  {...({
+                    webkitdirectory: "",
+                    directory: "",
+                  } as React.InputHTMLAttributes<HTMLInputElement>)}
+                />
+              </div>
+            )}
 
-            {/* New Folder Button */}
-            <button
-              onClick={() => setShowNewFolder(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
-            >
-              <FolderPlusIcon className="w-5 h-5" />
-              <span className="font-medium">New Folder</span>
-            </button>
+            {/* New Folder Button (admin only) */}
+            {isAdmin && (
+              <button
+                onClick={() => setShowNewFolder(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
+              >
+                <FolderPlusIcon className="w-5 h-5" />
+                <span className="font-medium">New Folder</span>
+              </button>
+            )}
 
             {/* View Mode Toggle */}
             <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
@@ -449,10 +536,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
               <div
                 key={doc.document_id}
                 className="group border border-slate-800 rounded-xl p-4 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer bg-slate-900"
-                onClick={() => {
-                  setSelectedDoc(doc);
-                  setShowPreview(true);
-                }}
+                onClick={() => openPreview(doc)}
               >
                 <div className="flex flex-col items-center gap-3">
                   {getFileIcon(doc.file_type)}
@@ -468,22 +552,35 @@ export const KnowledgeBaseDrive: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedDoc(doc);
-                        setShowPreview(true);
+                        openPreview(doc);
                       }}
                       className="p-2 bg-blue-600/20 hover:bg-blue-600/30 rounded-lg"
+                      title="Preview"
                     >
                       <EyeIcon className="w-4 h-4 text-blue-400" />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(doc.document_id);
+                        handleDownload(doc);
                       }}
-                      className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-lg"
+                      className="p-2 bg-green-600/20 hover:bg-green-600/30 rounded-lg"
+                      title="Download"
                     >
-                      <TrashIcon className="w-4 h-4 text-red-400" />
+                      <ArrowDownTrayIcon className="w-4 h-4 text-green-400" />
                     </button>
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(doc.document_id);
+                        }}
+                        className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-lg"
+                        title="Delete"
+                      >
+                        <TrashIcon className="w-4 h-4 text-red-400" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -519,10 +616,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
                   <tr
                     key={doc.document_id}
                     className="hover:bg-slate-800/50 cursor-pointer"
-                    onClick={() => {
-                      setSelectedDoc(doc);
-                      setShowPreview(true);
-                    }}
+                    onClick={() => openPreview(doc)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
@@ -553,22 +647,35 @@ export const KnowledgeBaseDrive: React.FC = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedDoc(doc);
-                            setShowPreview(true);
+                            openPreview(doc);
                           }}
                           className="p-2 hover:bg-blue-600/20 rounded-lg transition-colors"
+                          title="Preview"
                         >
                           <EyeIcon className="w-4 h-4 text-blue-400" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDelete(doc.document_id);
+                            handleDownload(doc);
                           }}
-                          className="p-2 hover:bg-red-600/20 rounded-lg transition-colors"
+                          className="p-2 hover:bg-green-600/20 rounded-lg transition-colors"
+                          title="Download"
                         >
-                          <TrashIcon className="w-4 h-4 text-red-400" />
+                          <ArrowDownTrayIcon className="w-4 h-4 text-green-400" />
                         </button>
+                        {isAdmin && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(doc.document_id);
+                            }}
+                            className="p-2 hover:bg-red-600/20 rounded-lg transition-colors"
+                            title="Delete"
+                          >
+                            <TrashIcon className="w-4 h-4 text-red-400" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -589,79 +696,175 @@ export const KnowledgeBaseDrive: React.FC = () => {
       {/* File Preview Modal */}
       {showPreview && selectedDoc && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
-            <div className="flex items-center justify-between p-6 border-b border-slate-800">
-              <h2 className="text-xl font-semibold text-slate-100">
-                Document Preview
-              </h2>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-              >
-                <XMarkIcon className="w-6 h-6 text-slate-400" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-              <div className="flex items-center gap-4 mb-6">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-800 flex-shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
                 {getFileIcon(selectedDoc.file_type)}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-100">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-slate-100 truncate">
                     {selectedDoc.filename}
-                  </h3>
+                  </h2>
                   <p className="text-sm text-slate-400">
                     {selectedDoc.file_type.toUpperCase()} •{" "}
-                    {formatFileSize(selectedDoc.size)}
+                    {formatFileSize(selectedDoc.size)} •{" "}
+                    {selectedDoc.chunks_count} chunks
                   </p>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-slate-800 rounded-lg p-4">
-                  <p className="text-xs text-slate-500 mb-1">Chunks</p>
-                  <p className="text-2xl font-semibold text-slate-100">
-                    {selectedDoc.chunks_count}
-                  </p>
-                </div>
-                <div className="bg-slate-800 rounded-lg p-4">
-                  <p className="text-xs text-slate-500 mb-1">Language</p>
-                  <p className="text-2xl font-semibold text-slate-100">
-                    {selectedDoc.language || "Auto"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Document ID
-                  </p>
-                  <p className="text-sm font-mono text-slate-200">
-                    {selectedDoc.document_id}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Created</p>
-                  <p className="text-sm text-slate-200">
-                    {formatDate(selectedDoc.created_at)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Modified</p>
-                  <p className="text-sm text-slate-200">
-                    {formatDate(selectedDoc.last_modified)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 pt-6 border-t border-slate-800">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => handleDelete(selectedDoc.document_id)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors font-medium border border-red-500/30"
+                  onClick={() => handleDownload(selectedDoc)}
+                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                  title="Download"
                 >
-                  <TrashIcon className="w-5 h-5" />
-                  Delete Document
+                  <ArrowDownTrayIcon className="w-5 h-5 text-blue-400" />
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleDelete(selectedDoc.document_id)}
+                    className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                    title="Delete"
+                  >
+                    <TrashIcon className="w-5 h-5 text-red-400" />
+                  </button>
+                )}
+                <button
+                  onClick={closePreview}
+                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                >
+                  <XMarkIcon className="w-5 h-5 text-slate-400" />
                 </button>
               </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-800 flex-shrink-0">
+              <button
+                onClick={() => setPreviewTab("preview")}
+                className={`px-6 py-3 text-sm font-medium transition-colors ${
+                  previewTab === "preview"
+                    ? "text-blue-400 border-b-2 border-blue-400"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Preview
+              </button>
+              <button
+                onClick={() => setPreviewTab("details")}
+                className={`px-6 py-3 text-sm font-medium transition-colors ${
+                  previewTab === "details"
+                    ? "text-blue-400 border-b-2 border-blue-400"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Details
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto">
+              {previewTab === "preview" ? (
+                <div className="h-full">
+                  {isPdf(selectedDoc) ? (
+                    pdfLoading ? (
+                      <div className="flex items-center justify-center h-64">
+                        <div className="text-center">
+                          <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                          <p className="text-slate-400 text-sm">Loading PDF...</p>
+                        </div>
+                      </div>
+                    ) : pdfBlobUrl ? (
+                      <iframe
+                        src={pdfBlobUrl}
+                        className="w-full h-[70vh] border-0"
+                        title={`Preview: ${selectedDoc.filename}`}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-64 text-slate-500">
+                        <p>Failed to load PDF preview</p>
+                      </div>
+                    )
+                  ) : chunksLoading ? (
+                    <div className="flex items-center justify-center h-64">
+                      <div className="text-center">
+                        <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                        <p className="text-slate-400 text-sm">Loading content...</p>
+                      </div>
+                    </div>
+                  ) : chunks.length > 0 ? (
+                    <div className="p-5 space-y-1">
+                      {chunks.map((chunk, idx) => (
+                        <div key={chunk.chunk_index}>
+                          {chunk.page_number != null && (idx === 0 || chunks[idx - 1]?.page_number !== chunk.page_number) && (
+                            <div className="flex items-center gap-2 mt-3 mb-2 first:mt-0">
+                              <div className="h-px flex-1 bg-slate-700"></div>
+                              <span className="text-xs text-slate-500 font-medium">Page {chunk.page_number}</span>
+                              <div className="h-px flex-1 bg-slate-700"></div>
+                            </div>
+                          )}
+                          <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                            {chunk.text}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-64 text-slate-500">
+                      <p>No content available for preview</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-5 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-800 rounded-lg p-4">
+                      <p className="text-xs text-slate-500 mb-1">Chunks</p>
+                      <p className="text-2xl font-semibold text-slate-100">
+                        {selectedDoc.chunks_count}
+                      </p>
+                    </div>
+                    <div className="bg-slate-800 rounded-lg p-4">
+                      <p className="text-xs text-slate-500 mb-1">Language</p>
+                      <p className="text-2xl font-semibold text-slate-100">
+                        {selectedDoc.language || "Auto"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Document ID</p>
+                      <p className="text-sm font-mono text-slate-200">
+                        {selectedDoc.document_id}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">File Type</p>
+                      <p className="text-sm text-slate-200 uppercase">
+                        {selectedDoc.file_type}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Size</p>
+                      <p className="text-sm text-slate-200">
+                        {formatFileSize(selectedDoc.size)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Created</p>
+                      <p className="text-sm text-slate-200">
+                        {formatDate(selectedDoc.created_at)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Modified</p>
+                      <p className="text-sm text-slate-200">
+                        {formatDate(selectedDoc.last_modified)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

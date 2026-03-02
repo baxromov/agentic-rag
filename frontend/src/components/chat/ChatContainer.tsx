@@ -1,34 +1,65 @@
 /**
- * Main chat container component with streaming support
+ * Main chat container component with streaming, sessions, feedback, and HITL support
  */
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useStreamingChat } from "../../hooks/useStreamingChat";
+import { useSessionStore } from "../../store/sessionStore";
+import { useAuthStore } from "../../store/authStore";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { FileUpload } from "../common/FileUpload";
 import {
-  Cog6ToothIcon,
   ArrowUpTrayIcon,
-  TrashIcon,
+  PlusIcon,
 } from "@heroicons/react/24/outline";
 
-interface ChatContainerProps {
-  onOpenSettings: () => void;
-}
-
-export const ChatContainer: React.FC<ChatContainerProps> = ({
-  onOpenSettings,
-}) => {
+export const ChatContainer: React.FC = () => {
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === "admin";
   const {
     messages,
     isStreaming,
     currentResponse,
+    clarificationQuestion,
+    awaitingClarification,
+    feedbacks,
     sendMessage,
     stopStreaming,
-    clearChat,
+    newChat,
+    loadMessages,
+    resumeAfterClarification,
+    submitFeedback,
   } = useStreamingChat();
+
+  const { activeSessionId } = useSessionStore();
   const [showUpload, setShowUpload] = useState(false);
+  const isStreamingRef = useRef(false);
+
+  // Keep streaming ref in sync so the session-change effect can read it
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  // Load messages when active session changes, or clear on new chat
+  // Skip loading while streaming — the SSE session_created event changes
+  // activeSessionId mid-stream, and calling loadMessages would overwrite
+  // the optimistic user message with stale server data.
+  useEffect(() => {
+    if (activeSessionId) {
+      if (!isStreamingRef.current) {
+        loadMessages(activeSessionId);
+      }
+    } else {
+      newChat();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
+
+  const handleSkipClarification = () => {
+    // Send a generic "skip" to continue with whatever the agent has
+    resumeAfterClarification("Please continue with the best available information.");
+  };
 
   return (
     <div className="flex flex-col h-screen bg-slate-950">
@@ -42,31 +73,24 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowUpload(!showUpload)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors border border-blue-500/30"
-            title="Upload document"
-          >
-            <ArrowUpTrayIcon className="w-5 h-5" />
-            <span className="font-medium">Upload</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowUpload(!showUpload)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors border border-blue-500/30"
+              title="Upload document"
+            >
+              <ArrowUpTrayIcon className="w-5 h-5" />
+              <span className="font-medium">Upload</span>
+            </button>
+          )}
 
           <button
-            onClick={clearChat}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors border border-red-500/30"
-            title="Clear chat"
+            onClick={newChat}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg transition-all shadow-md"
+            title="New chat"
           >
-            <TrashIcon className="w-5 h-5" />
-            <span className="font-medium">Clear</span>
-          </button>
-
-          <button
-            onClick={onOpenSettings}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors border border-slate-700"
-            title="Settings"
-          >
-            <Cog6ToothIcon className="w-5 h-5" />
-            <span className="font-medium">Settings</span>
+            <PlusIcon className="w-5 h-5" />
+            <span className="font-medium">New Chat</span>
           </button>
 
           {isStreaming && (
@@ -86,6 +110,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         isStreaming={isStreaming}
         currentResponse={currentResponse}
         onSuggestionClick={sendMessage}
+        feedbacks={feedbacks}
+        onSubmitFeedback={submitFeedback}
+        clarificationQuestion={clarificationQuestion}
+        awaitingClarification={awaitingClarification}
+        onRespondClarification={resumeAfterClarification}
+        onSkipClarification={handleSkipClarification}
       />
 
       {/* Input */}

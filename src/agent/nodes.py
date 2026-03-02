@@ -22,6 +22,7 @@ from src.services.context_manager import fit_documents_to_budget
 from src.services.embedding import EmbeddingService
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
+from src.utils.langfuse_integration import flush_langfuse_callbacks, get_langfuse_callbacks
 from src.utils.telemetry import log_generation, log_grading, log_rerank, log_retrieval
 
 # --- Intent detection patterns ---
@@ -190,7 +191,9 @@ def make_query_prepare_node(llm: BaseChatModel):
             SystemMessage(content=QUERY_PREPARE_SYSTEM),
             HumanMessage(content=QUERY_PREPARE_HUMAN.format(query=query)),
         ]
-        response = await llm.ainvoke(messages)
+        callbacks = get_langfuse_callbacks()
+        response = await llm.ainvoke(messages, config={"callbacks": callbacks})
+        flush_langfuse_callbacks(callbacks)
 
         # Parse JSON response
         try:
@@ -366,11 +369,26 @@ def make_rerank_node(reranker: RerankerService):
     return rerank
 
 
+_CLARIFICATION_TEMPLATES = {
+    "uz": "Savolingizni aniqroq tushuntirib bera olasizmi? Quyidagi ma'lumotlarni ko'rsating: {hint}",
+    "ru": "Не могли бы вы уточнить ваш вопрос? Пожалуйста, укажите: {hint}",
+    "en": "Could you clarify your question? Please specify: {hint}",
+}
+
+_CLARIFICATION_HINTS = {
+    "uz": "qaysi siyosat, qaysi bo'lim yoki qanday holat haqida so'rayapsiz",
+    "ru": "о какой политике, каком отделе или какой ситуации вы спрашиваете",
+    "en": "which policy, department, or situation you are asking about",
+}
+
+
 def make_grade_documents_node():
     """Create a node that filters documents by reranker score threshold (no LLM call).
 
     The cross-encoder reranker already scores relevance — using an LLM to re-grade
     is redundant and adds 2-4s latency. Instead, filter by reranker score threshold.
+
+    If all documents score very low AND we already retried, triggers HITL clarification.
     """
 
     async def grade_documents(state: AgentState) -> dict:
@@ -393,6 +411,19 @@ def make_grade_documents_node():
         elif not filtered and documents:
             filtered = documents[:1]
 
+        # HITL: if all docs score very low after a retry, ask for clarification
+        retries = state.get("retries", 0)
+        max_score = max((d.get("score", 0) for d in documents), default=0)
+        needs_clarification = False
+        clarification_question = None
+
+        if max_score < 0.25 and retries >= 1:
+            query_lang = state.get("query_language") or "en"
+            lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
+            hint = _CLARIFICATION_HINTS[lang]
+            clarification_question = _CLARIFICATION_TEMPLATES[lang].format(hint=hint)
+            needs_clarification = True
+
         latency_ms = int((time.time() - start_time) * 1000)
         log_grading(
             initial_count=initial_count,
@@ -401,7 +432,11 @@ def make_grade_documents_node():
             batch_mode=False,
         )
 
-        return {"documents": filtered}
+        result = {"documents": filtered}
+        if needs_clarification:
+            result["needs_clarification"] = True
+            result["clarification_question"] = clarification_question
+        return result
 
     return grade_documents
 
@@ -451,7 +486,9 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
         messages.append(HumanMessage(content=current_prompt))
 
         # Generate response
-        response = await llm.ainvoke(messages)
+        callbacks = get_langfuse_callbacks()
+        response = await llm.ainvoke(messages, config={"callbacks": callbacks})
+        flush_langfuse_callbacks(callbacks)
         answer = response.content
 
         # Validate response quality
@@ -571,7 +608,9 @@ def make_rewrite_query_node(llm: BaseChatModel):
             SystemMessage(content=REWRITE_SYSTEM),
             HumanMessage(content=REWRITE_HUMAN.format(query=query)),
         ]
-        response = await llm.ainvoke(messages)
+        callbacks = get_langfuse_callbacks()
+        response = await llm.ainvoke(messages, config={"callbacks": callbacks})
+        flush_langfuse_callbacks(callbacks)
         rewritten = response.content.strip()
         return {
             "query": rewritten,

@@ -8,6 +8,7 @@ import {
   ArrowTrendingUpIcon,
 } from "@heroicons/react/24/outline";
 import { API_BASE_URL } from "../../config/api";
+import { apiFetch } from "../../config/apiClient";
 
 interface DashboardStats {
   total_documents: number;
@@ -22,7 +23,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `${API_BASE_URL}/documents/knowledge-base`,
         );
         const data = await response.json();

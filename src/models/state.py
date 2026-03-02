@@ -18,3 +18,7 @@ class AgentState(TypedDict):
     runtime_context: dict | None  # User-specific runtime configuration
     query_language: str | None  # Detected query language
     intent: str | None  # "greeting", "thanks", "hr_query"
+    # Human-in-the-Loop fields
+    needs_clarification: bool
+    clarification_question: str | None
+    human_response: str | None
