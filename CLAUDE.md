@@ -16,7 +16,7 @@ Agentic RAG (Retrieval-Augmented Generation) framework for Ipoteka Bank. Documen
 - **Reranker**: jinaai/jina-reranker-v2-base-multilingual via model-server (FastEmbed)
 - **LLM**: Multi-provider (Claude, OpenAI, Ollama) — configured via `LLM_PROVIDER` in `.env`
 - **Auth DB**: MongoDB (users, feedback)
-- **State**: LangGraph with PostgreSQL persistence + Redis pub/sub
+- **State**: LangGraph with AsyncPostgresSaver (direct invocation, no langgraph-server needed) + Redis pub/sub
 - **Observability**: Langfuse (optional, via `LANGFUSE_ENABLED`)
 
 ## Running
@@ -67,7 +67,7 @@ src/
   api/            # FastAPI: app.py (factory), auth_dependencies.py, routes/ (chat, documents, health, query, sessions, feedback, auth, admin)
   config/         # settings.py (pydantic-settings, reads .env, @lru_cache singleton)
   ingestion/      # pipeline.py (upload→parse→chunk→embed→upsert), parser.py (unstructured), chunker.py
-  services/       # llm.py, embedding.py, qdrant_client.py, minio_client.py, reranker.py, context_manager.py, mongodb.py, auth.py
+  services/       # llm.py, embedding.py, qdrant_client.py, minio_client.py, reranker.py, context_manager.py, mongodb.py, auth.py, graph_runner.py, session_store.py
   models/         # state.py (AgentState TypedDict w/ HITL fields), schemas.py (Pydantic models), auth.py
 model_server/     # Separate reranker HTTP server (FastEmbed-based)
 frontend/src/
@@ -81,14 +81,20 @@ frontend/src/
 ## Agent Flow
 
 ```
-intent_router ─┬→ greeting_response → END
-               └→ query_prepare → retrieve → rerank → grade_documents → human_feedback
-                   ─┬→ expand_context → generate → END
-                    └→ rewrite_query → retrieve (max 3 retries)
+input_safety (LangChain LLM guardrail)
+  ─[blocked]→ END (canned safe response)
+  ─[safe]→ intent_router ─┬→ greeting_response → END
+                           ├→ general_response → output_safety → END
+                           └→ query_prepare → retrieve → rerank → grade_documents → human_feedback
+                               ─┬→ expand_context → generate → output_safety → END
+                                └→ rewrite_query → retrieve (max 3 retries)
 ```
 
-- **intent_router**: Pattern-based classification (greeting/thanks/hr_query) — no LLM
+- **input_safety**: LangChain LLM guardrail using `.with_structured_output(InputSafetyResult)` — detects identity probing, jailbreak, prompt injection, manipulation. Blocks unsafe queries with canned multilingual responses.
+- **output_safety**: Constitutional-style LLM guardrail using `.with_structured_output(OutputSafetyResult)` — catches identity leakage, provider mentions, off-character responses in LLM output.
+- **intent_router**: Pattern-based greeting/thanks detection + LLM classification (hr_query vs general_query) via `.with_structured_output()`
 - **greeting_response**: Multilingual greeting (uz/ru/en) — no LLM
+- **general_response**: Direct LLM answer for off-topic questions (no RAG retrieval)
 - **query_prepare**: Rewrites query + multi-query + step-back + filters in ONE LLM call
 - **retrieve**: Hybrid search (dense + full-text) with RRF fusion, 10% language boost for same-language docs
 - **rerank**: Cross-encoder via model-server HTTP call
@@ -163,7 +169,7 @@ Uses `@import "tailwindcss"` in index.css (not v3 `@tailwind` directives). CSS v
 Qdrant uses RRF (Reciprocal Rank Fusion, k=60) to combine dense + full-text results. If text index is missing on collection, search silently falls back to dense only.
 
 ### Chat Sessions
-Session management uses **LangGraph Server API** (`langgraph-sdk`) — no direct PostgreSQL access. Thread metadata stores `user_id`, `title`, `message_count`. Frontend `sessionStore.ts` (Zustand) tracks sessions list and `activeSessionId` (persisted to localStorage). Sidebar shows session list only on `/chat` route.
+Session metadata (title, user_id, message_count) stored in **MongoDB** (`chat_sessions` collection). Message history persisted in **PostgreSQL** via `AsyncPostgresSaver` checkpointer (direct graph invocation, no langgraph-server dependency). Frontend `sessionStore.ts` (Zustand) tracks sessions list and `activeSessionId` (persisted to localStorage). Sidebar shows session list only on `/chat` route.
 
 ### Human-in-the-Loop (HITL)
 When `grade_documents` detects all documents score < 0.25 after at least 1 retry, it sets `needs_clarification=True` with a multilingual question. The `human_feedback` node uses `langgraph.types.interrupt()` to pause the graph. Frontend shows `ClarificationPrompt` component. User response resumes via `POST /chat/resume` with `Command(resume=response)`.

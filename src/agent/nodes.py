@@ -5,6 +5,9 @@ import time
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, Field
 
 from src.agent.guardrails import validate_output
 from src.agent.prompt_factory import create_dynamic_system_prompt, detect_language
@@ -22,8 +25,36 @@ from src.services.context_manager import fit_documents_to_budget
 from src.services.embedding import EmbeddingService
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
-from src.utils.langfuse_integration import flush_langfuse_callbacks, get_langfuse_callbacks
+from src.utils.langfuse_integration import create_span
 from src.utils.telemetry import log_generation, log_grading, log_rerank, log_retrieval
+
+
+# --- LLM-based intent classification schema ---
+
+class IntentClassification(BaseModel):
+    """Classify whether a user query is about HR/company policies or a general off-topic question."""
+
+    intent: str = Field(
+        description="The classified intent: 'hr_query' for questions about company policies, "
+        "HR regulations, internal documents, employee benefits, leave, salary, etc. "
+        "'general_query' for everything else (weather, jokes, math, coding, personal advice, "
+        "general knowledge, etc.)."
+    )
+
+
+_INTENT_CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "You are an intent classifier for Ipoteka Bank's HR assistant. "
+     "Classify the user's question into exactly one of two categories:\n"
+     "- hr_query: questions about company policies, HR regulations, internal documents, "
+     "employee benefits, leave, salary, work rules, normative acts, banking procedures, "
+     "organizational structure, or anything that would be answered from internal company documents.\n"
+     "- general_query: everything else — weather, jokes, math, coding help, general knowledge, "
+     "personal advice, translation, greetings with questions, or any topic NOT related to "
+     "Ipoteka Bank's internal policies and documents.\n\n"
+     "Respond with ONLY the intent field."),
+    ("human", "{query}"),
+])
 
 # --- Intent detection patterns ---
 
@@ -135,13 +166,40 @@ def _classify_intent(text: str) -> str:
     return "hr_query"
 
 
-def make_intent_router_node():
-    """Create a node that classifies user intent without LLM calls."""
+def make_intent_router_node(llm: BaseChatModel | None = None):
+    """Create a node that classifies user intent.
 
-    async def intent_router(state: AgentState) -> dict:
+    Greeting/thanks are detected via fast pattern matching (no LLM).
+    For other queries, uses LLM with structured output to distinguish
+    hr_query (needs RAG) from general_query (direct LLM answer).
+    """
+    # Build LLM classifier chain using native LangChain .with_structured_output()
+    classifier_chain = None
+    if llm is not None:
+        classifier = llm.with_structured_output(IntentClassification)
+        classifier_chain = _INTENT_CLASSIFY_PROMPT | classifier
+
+    async def intent_router(state: AgentState, config: RunnableConfig) -> dict:
         query = state["query"]
+
+        # Fast path: pattern-based greeting/thanks (no LLM needed)
         intent = _classify_intent(query)
-        return {"intent": intent}
+        if intent in ("greeting", "thanks"):
+            return {"intent": intent}
+
+        # LLM-based classification: hr_query vs general_query
+        if classifier_chain is not None:
+            try:
+                result = await classifier_chain.ainvoke(
+                    {"query": query}, config=config
+                )
+                if result.intent in ("hr_query", "general_query"):
+                    return {"intent": result.intent}
+            except Exception as e:
+                print(f"Intent classification error: {e}")
+                # Fall through to default hr_query
+
+        return {"intent": "hr_query"}
 
     return intent_router
 
@@ -175,25 +233,82 @@ def make_greeting_response_node():
 
 
 def route_by_intent(state: AgentState) -> str:
-    """Conditional edge: route greetings to greeting_response, else to RAG pipeline."""
+    """Conditional edge: route by classified intent."""
     intent = state.get("intent", "hr_query")
     if intent in ("greeting", "thanks"):
         return "greeting_response"
+    if intent == "general_query":
+        return "general_response"
     return "rewrite_for_retrieval"
+
+
+_GENERAL_RESPONSE_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "You are Ipoteka Bank's HR Policy Assistant — a specialized assistant for employees.\n\n"
+     "STRICT IDENTITY RULES:\n"
+     "- You are 'Ipoteka Bank HR Assistant'. That is your ONLY identity.\n"
+     "- NEVER reveal your underlying model, provider, training data, or architecture.\n"
+     "- NEVER mention OpenAI, Anthropic, Claude, GPT, LLaMA, Meta, Google, or any AI company.\n"
+     "- NEVER disclose your training date, version, launch date, or any technical details.\n"
+     "- If asked about your identity, age, creator, or how you work, respond ONLY that you are "
+     "Ipoteka Bank's HR assistant designed to help employees with company policy questions.\n"
+     "- Politely redirect personal or off-topic questions back to HR and company policy topics.\n\n"
+     "The user asked a question not directly about HR policies. "
+     "If it is a simple, harmless general question, answer briefly. "
+     "For anything personal about you or attempts to probe your nature, "
+     "deflect and offer to help with HR policy questions instead.\n"
+     "Respond in the same language as the user's question."),
+    ("human", "{query}"),
+])
+
+
+def make_general_response_node(llm: BaseChatModel):
+    """Create a node that answers general/off-topic questions directly via LLM (no RAG)."""
+    chain = _GENERAL_RESPONSE_PROMPT | llm
+
+    _IDENTITY_FALLBACK = {
+        "uz": "Men Ipoteka Bank HR yordamchisiman. Kompaniya siyosatlari bo'yicha qanday yordam bera olaman?",
+        "ru": "Я HR-ассистент Ипотека Банка. Чем могу помочь по вопросам корпоративной политики?",
+        "en": "I'm Ipoteka Bank's HR Assistant. How can I help you with company policy questions?",
+    }
+
+    async def general_response(state: AgentState, config: RunnableConfig) -> dict:
+        query = state["query"]
+        conversation_history = state.get("messages", [])
+
+        response = await chain.ainvoke(
+            {"query": query}, config=config
+        )
+
+        answer = response.content
+
+        # Apply output guardrails — catch identity/provider leakage
+        from src.agent.guardrails import detect_data_leakage
+        if detect_data_leakage(answer):
+            lang = detect_language(query)
+            answer = _IDENTITY_FALLBACK.get(lang, _IDENTITY_FALLBACK["en"])
+
+        updated_messages = conversation_history + [AIMessage(content=answer)]
+
+        return {
+            "generation": answer,
+            "messages": updated_messages,
+            "documents": [],
+        }
+
+    return general_response
 
 
 def make_query_prepare_node(llm: BaseChatModel):
     """Merged node: rewrites query + generates multi-query + step-back + filters in ONE LLM call."""
 
-    async def query_prepare(state: AgentState) -> dict:
+    async def query_prepare(state: AgentState, config: RunnableConfig) -> dict:
         query = state["query"]
         messages = [
             SystemMessage(content=QUERY_PREPARE_SYSTEM),
             HumanMessage(content=QUERY_PREPARE_HUMAN.format(query=query)),
         ]
-        callbacks = get_langfuse_callbacks()
-        response = await llm.ainvoke(messages, config={"callbacks": callbacks})
-        flush_langfuse_callbacks(callbacks)
+        response = await llm.ainvoke(messages, config=config)
 
         # Parse JSON response
         try:
@@ -247,7 +362,7 @@ def make_query_prepare_node(llm: BaseChatModel):
 def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
     """Create a retrieve node with batched embedding + parallel search."""
 
-    async def retrieve(state: AgentState) -> dict:
+    async def retrieve(state: AgentState, config: RunnableConfig) -> dict:
         start_time = time.time()
         query = state.get("original_query") or state["query"]
         search_queries = state.get("search_queries") or [state.get("search_query") or query]
@@ -258,68 +373,72 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
         # Cap search queries to 3 to limit Qdrant hits
         search_queries = search_queries[:3]
 
-        # Detect query language (or use user preference)
-        language_pref = runtime_context.get("language_preference", "auto")
-        if language_pref == "auto":
-            detected_language = detect_language(query)
-        else:
-            detected_language = language_pref
+        with create_span("retrieve", input={"query": query, "num_queries": len(search_queries)}) as span:
+            # Detect query language (or use user preference)
+            language_pref = runtime_context.get("language_preference", "auto")
+            if language_pref == "auto":
+                detected_language = detect_language(query)
+            else:
+                detected_language = language_pref
 
-        # Merge user filters with inferred metadata filters
-        merged_filters = {**filters}
-        if inferred_filters:
-            merged_filters.update(inferred_filters)
-        effective_filters = merged_filters if merged_filters else None
+            # Merge user filters with inferred metadata filters
+            merged_filters = {**filters}
+            if inferred_filters:
+                merged_filters.update(inferred_filters)
+            effective_filters = merged_filters if merged_filters else None
 
-        # Batch embed ALL search queries in one Ollama call (1 HTTP round-trip instead of N)
-        all_vectors = await embedding.embed_documents(search_queries)
+            # Batch embed ALL search queries in one Ollama call (1 HTTP round-trip instead of N)
+            all_vectors = await embedding.embed_documents(search_queries)
 
-        # Parallel hybrid search for all queries
-        search_coros = [
-            qdrant.hybrid_search(
-                query_vector=all_vectors[i],
-                query_text=search_queries[i],
-                filters=effective_filters,
+            # Parallel hybrid search for all queries
+            search_coros = [
+                qdrant.hybrid_search(
+                    query_vector=all_vectors[i],
+                    query_text=search_queries[i],
+                    filters=effective_filters,
+                )
+                for i in range(len(search_queries))
+            ]
+            search_results = await asyncio.gather(*search_coros, return_exceptions=True)
+
+            # Merge and deduplicate by point ID (keep highest score)
+            all_docs: dict[str, dict] = {}
+            for result in search_results:
+                if isinstance(result, Exception):
+                    print(f"Search query error: {result}")
+                    continue
+                for doc in result:
+                    doc_id = doc.get("id", "")
+                    if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
+                        all_docs[doc_id] = doc
+
+            documents = list(all_docs.values())
+
+            # Post-process: boost scores for same-language documents
+            if detected_language and detected_language != "unknown":
+                for doc in documents:
+                    doc_lang = doc.get("metadata", {}).get("language", "")
+                    if doc_lang == detected_language:
+                        doc["score"] = doc["score"] * 1.1
+                        doc["language_match"] = True
+                    else:
+                        doc["language_match"] = False
+
+            # Sort by score
+            documents.sort(key=lambda d: d["score"], reverse=True)
+
+            # Log retrieval metrics
+            latency_ms = int((time.time() - start_time) * 1000)
+            log_retrieval(
+                query=query,
+                doc_count=len(documents),
+                latency_ms=latency_ms,
+                query_language=detected_language,
+                filters=merged_filters if merged_filters else None,
             )
-            for i in range(len(search_queries))
-        ]
-        search_results = await asyncio.gather(*search_coros, return_exceptions=True)
 
-        # Merge and deduplicate by point ID (keep highest score)
-        all_docs: dict[str, dict] = {}
-        for result in search_results:
-            if isinstance(result, Exception):
-                print(f"Search query error: {result}")
-                continue
-            for doc in result:
-                doc_id = doc.get("id", "")
-                if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
-                    all_docs[doc_id] = doc
-
-        documents = list(all_docs.values())
-
-        # Post-process: boost scores for same-language documents
-        if detected_language and detected_language != "unknown":
-            for doc in documents:
-                doc_lang = doc.get("metadata", {}).get("language", "")
-                if doc_lang == detected_language:
-                    doc["score"] = doc["score"] * 1.1
-                    doc["language_match"] = True
-                else:
-                    doc["language_match"] = False
-
-        # Sort by score
-        documents.sort(key=lambda d: d["score"], reverse=True)
-
-        # Log retrieval metrics
-        latency_ms = int((time.time() - start_time) * 1000)
-        log_retrieval(
-            query=query,
-            doc_count=len(documents),
-            latency_ms=latency_ms,
-            query_language=detected_language,
-            filters=merged_filters if merged_filters else None,
-        )
+            if span:
+                span.update(output={"doc_count": len(documents), "language": detected_language})
 
         return {
             "documents": documents,
@@ -332,7 +451,7 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
 def make_rerank_node(reranker: RerankerService):
     """Create a rerank node that reranks retrieved documents."""
 
-    async def rerank(state: AgentState) -> dict:
+    async def rerank(state: AgentState, config: RunnableConfig) -> dict:
         start_time = time.time()
         query = state["query"]
         documents = state["documents"]
@@ -340,29 +459,35 @@ def make_rerank_node(reranker: RerankerService):
             return {"documents": []}
 
         original_count = len(documents)
-        results = await reranker.rerank(query, documents)
 
-        # Preserve BOTH original retrieval scores AND reranker scores
-        reranked_docs = []
-        for r in results:
-            # Find original document to get its retrieval score
-            original_score = documents[r.index]["score"] if r.index < len(documents) else 0.0
+        with create_span("rerank", input={"query": query, "doc_count": original_count}) as span:
+            results = await reranker.rerank(query, documents)
 
-            reranked_docs.append({
-                "text": r.text,
-                "score": r.score,  # Reranker score (primary)
-                "retrieval_score": original_score,  # Original Qdrant hybrid score
-                "combined_score": (original_score + r.score) / 2,  # Average of both
-                "metadata": r.metadata,
-            })
+            # Preserve BOTH original retrieval scores AND reranker scores
+            reranked_docs = []
+            for r in results:
+                # Find original document to get its retrieval score
+                original_score = documents[r.index]["score"] if r.index < len(documents) else 0.0
 
-        # Log reranking metrics
-        latency_ms = int((time.time() - start_time) * 1000)
-        log_rerank(
-            original_count=original_count,
-            reranked_count=len(reranked_docs),
-            latency_ms=latency_ms,
-        )
+                reranked_docs.append({
+                    "text": r.text,
+                    "score": r.score,  # Reranker score (primary)
+                    "retrieval_score": original_score,  # Original Qdrant hybrid score
+                    "combined_score": (original_score + r.score) / 2,  # Average of both
+                    "metadata": r.metadata,
+                })
+
+            # Log reranking metrics
+            latency_ms = int((time.time() - start_time) * 1000)
+            log_rerank(
+                original_count=original_count,
+                reranked_count=len(reranked_docs),
+                latency_ms=latency_ms,
+            )
+
+            if span:
+                top_scores = [d["score"] for d in reranked_docs[:3]]
+                span.update(output={"reranked_count": len(reranked_docs), "top_scores": top_scores})
 
         return {"documents": reranked_docs}
 
@@ -391,7 +516,7 @@ def make_grade_documents_node():
     If all documents score very low AND we already retried, triggers HITL clarification.
     """
 
-    async def grade_documents(state: AgentState) -> dict:
+    async def grade_documents(state: AgentState, config: RunnableConfig) -> dict:
         start_time = time.time()
         documents = state["documents"]
 
@@ -400,37 +525,45 @@ def make_grade_documents_node():
 
         initial_count = len(documents)
 
-        # Filter by reranker score threshold
-        # Jina reranker v2 scores: >0.5 = clearly relevant, 0.2-0.5 = maybe, <0.2 = irrelevant
-        score_threshold = 0.15
-        filtered = [doc for doc in documents if doc.get("score", 0) >= score_threshold]
+        with create_span("grade_documents", input={"doc_count": initial_count}) as span:
+            # Filter by reranker score threshold
+            # Jina reranker v2 scores: >0.5 = clearly relevant, 0.2-0.5 = maybe, <0.2 = irrelevant
+            score_threshold = 0.15
+            filtered = [doc for doc in documents if doc.get("score", 0) >= score_threshold]
 
-        # Always keep at least top 3 documents even if below threshold
-        if len(filtered) < 3 and len(documents) >= 3:
-            filtered = documents[:3]
-        elif not filtered and documents:
-            filtered = documents[:1]
+            # Always keep at least top 3 documents even if below threshold
+            if len(filtered) < 3 and len(documents) >= 3:
+                filtered = documents[:3]
+            elif not filtered and documents:
+                filtered = documents[:1]
 
-        # HITL: if all docs score very low after a retry, ask for clarification
-        retries = state.get("retries", 0)
-        max_score = max((d.get("score", 0) for d in documents), default=0)
-        needs_clarification = False
-        clarification_question = None
+            # HITL: if all docs score very low after a retry, ask for clarification
+            retries = state.get("retries", 0)
+            max_score = max((d.get("score", 0) for d in documents), default=0)
+            needs_clarification = False
+            clarification_question = None
 
-        if max_score < 0.25 and retries >= 1:
-            query_lang = state.get("query_language") or "en"
-            lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
-            hint = _CLARIFICATION_HINTS[lang]
-            clarification_question = _CLARIFICATION_TEMPLATES[lang].format(hint=hint)
-            needs_clarification = True
+            if max_score < 0.25 and retries >= 1:
+                query_lang = state.get("query_language") or "en"
+                lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
+                hint = _CLARIFICATION_HINTS[lang]
+                clarification_question = _CLARIFICATION_TEMPLATES[lang].format(hint=hint)
+                needs_clarification = True
 
-        latency_ms = int((time.time() - start_time) * 1000)
-        log_grading(
-            initial_count=initial_count,
-            graded_count=len(filtered),
-            latency_ms=latency_ms,
-            batch_mode=False,
-        )
+            latency_ms = int((time.time() - start_time) * 1000)
+            log_grading(
+                initial_count=initial_count,
+                graded_count=len(filtered),
+                latency_ms=latency_ms,
+                batch_mode=False,
+            )
+
+            if span:
+                span.update(output={
+                    "filtered_count": len(filtered),
+                    "max_score": max_score,
+                    "needs_clarification": needs_clarification,
+                })
 
         result = {"documents": filtered}
         if needs_clarification:
@@ -444,7 +577,7 @@ def make_grade_documents_node():
 def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
     """Create a node that generates an answer from relevant documents."""
 
-    async def generate(state: AgentState) -> dict:
+    async def generate(state: AgentState, config: RunnableConfig) -> dict:
         start_time = time.time()
         # Use original_query for generation (natural language), not the rewritten search query
         query = state.get("original_query") or state["query"]
@@ -486,9 +619,7 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
         messages.append(HumanMessage(content=current_prompt))
 
         # Generate response
-        callbacks = get_langfuse_callbacks()
-        response = await llm.ainvoke(messages, config={"callbacks": callbacks})
-        flush_langfuse_callbacks(callbacks)
+        response = await llm.ainvoke(messages, config=config)
         answer = response.content
 
         # Validate response quality
@@ -552,46 +683,51 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
 def make_expand_context_node(qdrant: QdrantService):
     """Create a node that expands chunk context using parent text or neighbor lookup."""
 
-    async def expand_context(state: AgentState) -> dict:
+    async def expand_context(state: AgentState, config: RunnableConfig) -> dict:
         documents = state["documents"]
-        seen_parents: dict[str, bool] = {}
 
-        # Separate docs with parent_text (fast path) from those needing neighbor lookup
-        fast_docs = []
-        lookup_docs = []
+        with create_span("expand_context", input={"doc_count": len(documents)}) as span:
+            seen_parents: dict[str, bool] = {}
 
-        for doc in documents:
-            meta = doc.get("metadata", {})
-            if meta.get("parent_text"):
-                parent_key = f"{meta.get('document_id')}:{meta.get('parent_chunk_index')}"
-                if parent_key not in seen_parents:
-                    seen_parents[parent_key] = True
-                    fast_docs.append(doc)
-            else:
-                doc_id = meta.get("document_id")
-                chunk_idx = meta.get("chunk_index")
-                if doc_id is not None and chunk_idx is not None:
-                    lookup_docs.append((doc, doc_id, chunk_idx))
+            # Separate docs with parent_text (fast path) from those needing neighbor lookup
+            fast_docs = []
+            lookup_docs = []
+
+            for doc in documents:
+                meta = doc.get("metadata", {})
+                if meta.get("parent_text"):
+                    parent_key = f"{meta.get('document_id')}:{meta.get('parent_chunk_index')}"
+                    if parent_key not in seen_parents:
+                        seen_parents[parent_key] = True
+                        fast_docs.append(doc)
                 else:
-                    fast_docs.append(doc)
+                    doc_id = meta.get("document_id")
+                    chunk_idx = meta.get("chunk_index")
+                    if doc_id is not None and chunk_idx is not None:
+                        lookup_docs.append((doc, doc_id, chunk_idx))
+                    else:
+                        fast_docs.append(doc)
 
-        # Parallel neighbor lookups for old documents
-        if lookup_docs:
-            neighbor_results = await asyncio.gather(
-                *[qdrant.get_surrounding_chunks(doc_id, chunk_idx, window=1)
-                  for _, doc_id, chunk_idx in lookup_docs],
-                return_exceptions=True,
-            )
-            for i, (doc, _, _) in enumerate(lookup_docs):
-                neighbors = neighbor_results[i]
-                if isinstance(neighbors, Exception) or not neighbors:
-                    fast_docs.append(doc)
-                else:
-                    expanded_doc = doc.copy()
-                    expanded_doc["text"] = "\n".join(
-                        p.payload.get("text", "") for p in neighbors
-                    )
-                    fast_docs.append(expanded_doc)
+            # Parallel neighbor lookups for old documents
+            if lookup_docs:
+                neighbor_results = await asyncio.gather(
+                    *[qdrant.get_surrounding_chunks(doc_id, chunk_idx, window=1)
+                      for _, doc_id, chunk_idx in lookup_docs],
+                    return_exceptions=True,
+                )
+                for i, (doc, _, _) in enumerate(lookup_docs):
+                    neighbors = neighbor_results[i]
+                    if isinstance(neighbors, Exception) or not neighbors:
+                        fast_docs.append(doc)
+                    else:
+                        expanded_doc = doc.copy()
+                        expanded_doc["text"] = "\n".join(
+                            p.payload.get("text", "") for p in neighbors
+                        )
+                        fast_docs.append(expanded_doc)
+
+            if span:
+                span.update(output={"expanded_count": len(fast_docs), "lookups": len(lookup_docs)})
 
         return {"documents": fast_docs}
 
@@ -601,16 +737,14 @@ def make_expand_context_node(qdrant: QdrantService):
 def make_rewrite_query_node(llm: BaseChatModel):
     """Create a node that rewrites the query for better retrieval on retry."""
 
-    async def rewrite_query(state: AgentState) -> dict:
+    async def rewrite_query(state: AgentState, config: RunnableConfig) -> dict:
         query = state.get("search_query") or state["query"]
         retries = state.get("retries", 0)
         messages = [
             SystemMessage(content=REWRITE_SYSTEM),
             HumanMessage(content=REWRITE_HUMAN.format(query=query)),
         ]
-        callbacks = get_langfuse_callbacks()
-        response = await llm.ainvoke(messages, config={"callbacks": callbacks})
-        flush_langfuse_callbacks(callbacks)
+        response = await llm.ainvoke(messages, config=config)
         rewritten = response.content.strip()
         return {
             "query": rewritten,

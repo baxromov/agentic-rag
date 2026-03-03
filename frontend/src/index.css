@@ -1,22 +1,72 @@
 @import "tailwindcss";
 
+/* Theme CSS variables */
+:root,
+[data-theme="dark"] {
+    --color-page: #0f172a;
+    --color-card: #1e293b;
+    --color-input: #1e293b;
+    --color-sidebar-from: #0f172a;
+    --color-sidebar-via: #1e293b;
+    --color-sidebar-to: #0f172a;
+    --color-hover: #334155;
+    --color-border-default: #334155;
+    --color-text-primary: #f1f5f9;
+    --color-text-secondary: #94a3b8;
+    --color-text-muted: #64748b;
+    --color-text-inverted: #0f172a;
+    --color-overlay: rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="light"] {
+    --color-page: #f1f5f9;
+    --color-card: #ffffff;
+    --color-input: #f1f5f9;
+    --color-sidebar-from: #ffffff;
+    --color-sidebar-via: #f8fafc;
+    --color-sidebar-to: #ffffff;
+    --color-hover: #e2e8f0;
+    --color-border-default: #cbd5e1;
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #475569;
+    --color-text-muted: #94a3b8;
+    --color-text-inverted: #f1f5f9;
+    --color-overlay: rgba(0, 0, 0, 0.4);
+}
+
+@theme inline {
+    --color-page: var(--color-page);
+    --color-card: var(--color-card);
+    --color-input: var(--color-input);
+    --color-hover: var(--color-hover);
+    --color-border-default: var(--color-border-default);
+    --color-text-primary: var(--color-text-primary);
+    --color-text-secondary: var(--color-text-secondary);
+    --color-text-muted: var(--color-text-muted);
+    --color-text-inverted: var(--color-text-inverted);
+    --color-sidebar-from: var(--color-sidebar-from);
+    --color-sidebar-via: var(--color-sidebar-via);
+    --color-sidebar-to: var(--color-sidebar-to);
+    --color-overlay: var(--color-overlay);
+}
+
 @layer base {
     body {
-        background-color: #0f172a;
-        color: #e2e8f0;
+        background-color: var(--color-page);
+        color: var(--color-text-primary);
         min-height: 100vh;
     }
 
     input,
     textarea,
     select {
-        background-color: #1e293b;
-        color: #e2e8f0;
-        border-color: #334155;
+        background-color: var(--color-input);
+        color: var(--color-text-primary);
+        border-color: var(--color-border-default);
     }
 
     input::placeholder,
     textarea::placeholder {
-        color: #64748b;
+        color: var(--color-text-muted);
     }
 }

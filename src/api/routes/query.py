@@ -1,40 +1,52 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
-from langgraph_sdk import get_client
 
 from src.api.auth_dependencies import get_current_user
-from src.config.settings import get_settings
 from src.models.schemas import QueryRequest, QueryResponse, SourceDocument
+from src.services.graph_runner import get_graph
 
 router = APIRouter(tags=["query"])
 
 
 @router.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest, _user: dict = Depends(get_current_user)):
-    settings = get_settings()
-    client = get_client(url=settings.langgraph_api_url)
+    graph = get_graph()
 
     try:
-        # Create a thread
-        thread = await client.threads.create()
+        # Use a unique thread_id for one-shot queries (no session persistence needed)
+        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-        # Run the graph
-        result = await client.runs.wait(
-            thread_id=thread["thread_id"],
-            assistant_id="rag_agent",
-            input={
+        # Run the graph and collect final state
+        result = {}
+        async for event in graph.astream(
+            {
                 "messages": [],
                 "query": request.query,
                 "documents": [],
                 "generation": "",
                 "retries": 0,
                 "filters": request.filters,
+                "context_metadata": None,
+                "runtime_context": None,
+                "needs_clarification": False,
+                "clarification_question": None,
+                "human_response": None,
+                "guardrail_blocked": False,
             },
-        )
+            config=config,
+            stream_mode="updates",
+        ):
+            result.update(event)
+
+        # Get final state from checkpointer
+        state = await graph.aget_state(config)
+        values = state.values if state else {}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LangGraph API error: {e}")
+        raise HTTPException(status_code=500, detail=f"Graph execution error: {e}")
 
     sources = []
-    for doc in result.get("documents", []):
+    for doc in values.get("documents", []):
         meta = doc.get("metadata", {})
         sources.append(
             SourceDocument(
@@ -47,8 +59,8 @@ async def query(request: QueryRequest, _user: dict = Depends(get_current_user)):
         )
 
     return QueryResponse(
-        answer=result.get("generation", "No answer generated."),
+        answer=values.get("generation", "No answer generated."),
         sources=sources,
-        query=result.get("query", request.query),
-        retries=result.get("retries", 0),
+        query=values.get("query", request.query),
+        retries=values.get("retries", 0),
     )

@@ -38,7 +38,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-slate-900/75 transition-opacity" />
+          <div className="fixed inset-0 bg-overlay transition-opacity" />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-hidden">
@@ -55,16 +55,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                 leaveTo="translate-x-full"
               >
                 <Dialog.Panel className="pointer-events-auto w-screen max-w-md">
-                  <div className="flex h-full flex-col overflow-y-scroll bg-white dark:bg-slate-900 shadow-xl">
+                  <div className="flex h-full flex-col overflow-y-scroll bg-card shadow-xl">
                     {/* Header */}
-                    <div className="px-6 py-6 border-b border-slate-200 dark:border-slate-700">
+                    <div className="px-6 py-6 border-b border-border-default">
                       <div className="flex items-start justify-between">
-                        <Dialog.Title className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                        <Dialog.Title className="text-xl font-semibold text-text-primary">
                           Settings
                         </Dialog.Title>
                         <button
                           type="button"
-                          className="rounded-lg p-2 text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          className="rounded-lg p-2 text-text-secondary hover:text-text-muted hover:bg-hover"
                           onClick={onClose}
                         >
                           <span className="sr-only">Close panel</span>
@@ -76,10 +76,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                     {/* Content */}
                     <div className="flex-1 px-6 py-6 space-y-6">
                       <div>
-                        <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-3">
+                        <h3 className="text-sm font-medium text-text-primary mb-3">
                           Personalization
                         </h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                        <p className="text-sm text-text-secondary mb-4">
                           Customize how the AI responds to your queries
                         </p>
 
@@ -92,24 +92,24 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                       </div>
 
                       {/* Divider */}
-                      <div className="border-t border-slate-200 dark:border-slate-700" />
+                      <div className="border-t border-border-default" />
 
                       {/* Actions */}
                       <div>
-                        <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-3">
+                        <h3 className="text-sm font-medium text-text-primary mb-3">
                           Actions
                         </h3>
                         <button
                           onClick={handleClearHistory}
-                          className="w-full px-4 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                          className="w-full px-4 py-2 text-sm font-medium text-red-400 bg-red-900/20 rounded-lg hover:bg-red-900/30 transition-colors"
                         >
                           Clear Chat History
                         </button>
                       </div>
 
                       {/* Info */}
-                      <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                      <div className="pt-4 border-t border-border-default">
+                        <p className="text-xs text-text-muted">
                           Settings are saved to your browser and will persist across sessions.
                         </p>
                       </div>

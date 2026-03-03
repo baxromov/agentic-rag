@@ -9,6 +9,10 @@ dist/
 build/
 *.egg
 
+# Node modules
+node_modules/
+frontend/node_modules/
+
 # Virtual environments
 venv/
 env/

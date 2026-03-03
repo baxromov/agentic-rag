@@ -37,13 +37,13 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
           className={`rounded-2xl px-5 py-4 shadow-sm ${
             isUser
               ? "bg-gradient-to-br from-blue-600 to-indigo-600 text-white"
-              : "bg-slate-800 border border-slate-700 text-slate-200"
+              : "bg-input border border-border-default text-text-primary"
           }`}
         >
           <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
 
-        <span className="text-xs text-slate-500 mt-1 px-2">
+        <span className="text-xs text-text-muted mt-1 px-2">
           {formatDate(message.timestamp)}
         </span>
       </div>

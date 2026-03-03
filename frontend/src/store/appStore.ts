@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS } from '../types/settings';
 import { API_BASE_URL } from '../config/api';
 
 export type WSStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type Theme = 'dark' | 'light';
 
 interface AppState {
   // WebSocket
@@ -29,6 +30,8 @@ interface AppState {
   currentMetadata: ContextMetadata | null;
 
   // UI
+  theme: Theme;
+  sidebarCollapsed: boolean;
   showSettings: boolean;
   errors: string[];
   warnings: string[];
@@ -46,6 +49,8 @@ interface AppState {
   loadSettings: () => Promise<void>;
   saveSettings: () => void;
   setCurrentMetadata: (metadata: ContextMetadata | null) => void;
+  toggleTheme: () => void;
+  toggleSidebar: () => void;
   setShowSettings: (show: boolean) => void;
   addError: (error: string) => void;
   addWarning: (warning: string) => void;
@@ -64,6 +69,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentNode: null,
   settings: DEFAULT_SETTINGS,
   currentMetadata: null,
+  theme: (localStorage.getItem('theme') as Theme) || 'dark',
+  sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',
   showSettings: false,
   errors: [],
   warnings: [],
@@ -118,6 +125,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setCurrentMetadata: (currentMetadata) => set({ currentMetadata }),
+
+  toggleTheme: () => set((state) => {
+    const newTheme = state.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('theme', newTheme);
+    return { theme: newTheme };
+  }),
+
+  toggleSidebar: () => set((state) => {
+    const collapsed = !state.sidebarCollapsed;
+    localStorage.setItem('sidebarCollapsed', String(collapsed));
+    return { sidebarCollapsed: collapsed };
+  }),
 
   setShowSettings: (showSettings) => set({ showSettings }),
 

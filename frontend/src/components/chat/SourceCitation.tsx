@@ -88,14 +88,14 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
 
   return (
     <>
-      <div className="w-full bg-slate-800/50 rounded-lg border border-slate-700">
+      <div className="w-full bg-input/50 rounded-lg border border-border-default">
         {/* Header */}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center justify-between p-3 hover:bg-slate-800 rounded-lg transition-colors"
+          className="w-full flex items-center justify-between p-3 hover:bg-input rounded-lg transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-300">
+            <span className="text-sm font-medium text-text-secondary">
               Sources
             </span>
             <Badge variant="info" size="sm">
@@ -103,9 +103,9 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
             </Badge>
           </div>
           {isExpanded ? (
-            <ChevronUpIcon className="h-4 w-4 text-slate-500" />
+            <ChevronUpIcon className="h-4 w-4 text-text-muted" />
           ) : (
-            <ChevronDownIcon className="h-4 w-4 text-slate-500" />
+            <ChevronDownIcon className="h-4 w-4 text-text-muted" />
           )}
         </button>
 
@@ -115,7 +115,7 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
             {sources.map((source, index) => (
               <div
                 key={index}
-                className="p-3 bg-slate-900 rounded border border-slate-700"
+                className="p-3 bg-card rounded border border-border-default"
               >
                 {/* Source metadata */}
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -166,7 +166,7 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                 </div>
 
                 {/* Text preview */}
-                <p className="text-sm text-slate-300 line-clamp-3">
+                <p className="text-sm text-text-secondary line-clamp-3">
                   {source.text}
                 </p>
               </div>
@@ -178,19 +178,19 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
       {/* Document Preview Modal */}
       {previewDoc && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-card border border-border-default rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-800 flex-shrink-0">
+            <div className="flex items-center justify-between p-4 border-b border-border-default flex-shrink-0">
               <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-slate-100 truncate">
+                <h3 className="text-lg font-semibold text-text-primary truncate">
                   {previewDoc.source || 'Document'}
                 </h3>
                 <div className="flex items-center gap-2 mt-1">
                   {previewDoc.page_number != null && (
-                    <span className="text-xs text-slate-400">Page {previewDoc.page_number}</span>
+                    <span className="text-xs text-text-secondary">Page {previewDoc.page_number}</span>
                   )}
                   {previewDoc.language && (
-                    <span className="text-xs text-slate-400 uppercase">{previewDoc.language}</span>
+                    <span className="text-xs text-text-secondary uppercase">{previewDoc.language}</span>
                   )}
                 </div>
               </div>
@@ -198,7 +198,7 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                 {previewDoc.document_id && (
                   <button
                     onClick={() => handleDownload(previewDoc.document_id!, previewDoc.source || 'document')}
-                    className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                    className="p-2 hover:bg-input rounded-lg transition-colors"
                     title="Download"
                   >
                     <ArrowDownTrayIcon className="w-5 h-5 text-blue-400" />
@@ -206,9 +206,9 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                 )}
                 <button
                   onClick={closePreview}
-                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                  className="p-2 hover:bg-input rounded-lg transition-colors"
                 >
-                  <XMarkIcon className="w-5 h-5 text-slate-400" />
+                  <XMarkIcon className="w-5 h-5 text-text-secondary" />
                 </button>
               </div>
             </div>
@@ -219,8 +219,8 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                 pdfLoading ? (
                   <div className="flex items-center justify-center h-64">
                     <div className="text-center">
-                      <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
-                      <p className="text-slate-400 text-sm">Loading PDF...</p>
+                      <div className="w-10 h-10 border-4 border-border-default rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                      <p className="text-text-secondary text-sm">Loading PDF...</p>
                     </div>
                   </div>
                 ) : pdfBlobUrl ? (
@@ -230,15 +230,15 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                     title={`Preview: ${previewDoc.source}`}
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-64 text-slate-500">
+                  <div className="flex items-center justify-center h-64 text-text-muted">
                     <p>Failed to load PDF</p>
                   </div>
                 )
               ) : chunksLoading ? (
                 <div className="flex items-center justify-center h-64">
                   <div className="text-center">
-                    <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
-                    <p className="text-slate-400 text-sm">Loading content...</p>
+                    <div className="w-10 h-10 border-4 border-border-default rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                    <p className="text-text-secondary text-sm">Loading content...</p>
                   </div>
                 </div>
               ) : chunks.length > 0 ? (
@@ -247,19 +247,19 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                     <div key={chunk.chunk_index}>
                       {chunk.page_number != null && (idx === 0 || chunks[idx - 1]?.page_number !== chunk.page_number) && (
                         <div className="flex items-center gap-2 mt-3 mb-2 first:mt-0">
-                          <div className="h-px flex-1 bg-slate-700"></div>
-                          <span className="text-xs text-slate-500 font-medium">Page {chunk.page_number}</span>
-                          <div className="h-px flex-1 bg-slate-700"></div>
+                          <div className="h-px flex-1 bg-hover"></div>
+                          <span className="text-xs text-text-muted font-medium">Page {chunk.page_number}</span>
+                          <div className="h-px flex-1 bg-hover"></div>
                         </div>
                       )}
-                      <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                      <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">
                         {chunk.text}
                       </p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-64 text-slate-500">
+                <div className="flex items-center justify-center h-64 text-text-muted">
                   <p>No content available</p>
                 </div>
               )}

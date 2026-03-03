@@ -60,28 +60,28 @@ export const SystemHealth: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-950">
-        <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-full bg-page">
+        <div className="w-12 h-12 border-4 border-border-default border-t-blue-500 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-slate-950">
+    <div className="h-full overflow-auto bg-page">
       <div className="p-8 max-w-4xl">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-text-primary flex items-center gap-3">
               <HeartIcon className="w-8 h-8 text-blue-400" />
               System Health
             </h1>
-            <p className="text-slate-400 mt-1">
+            <p className="text-text-secondary mt-1">
               Real-time status of all services
             </p>
           </div>
           <div className="flex items-center gap-4">
             {lastUpdated && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-text-muted">
                 Updated{" "}
                 {lastUpdated.toLocaleTimeString("en-US", {
                   hour: "2-digit",
@@ -92,7 +92,7 @@ export const SystemHealth: React.FC = () => {
             )}
             <button
               onClick={fetchHealth}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-input hover:bg-hover text-text-secondary rounded-lg transition-colors"
             >
               <ArrowPathIcon className="w-4 h-4" />
               Refresh
@@ -126,7 +126,7 @@ export const SystemHealth: React.FC = () => {
                   ? "All Systems Operational"
                   : "System Degraded"}
               </p>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-text-secondary">
                 {healthyCount}/{totalCount} services healthy
               </p>
             </div>
@@ -142,11 +142,11 @@ export const SystemHealth: React.FC = () => {
               return (
                 <div
                   key={key}
-                  className="bg-slate-900 rounded-xl border border-slate-800 p-5 hover:border-slate-700 transition-colors"
+                  className="bg-card rounded-xl border border-border-default p-5 hover:border-border-default transition-colors"
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-slate-200">
+                      <p className="text-sm font-semibold text-text-primary">
                         {SERVICE_LABELS[key] || key}
                       </p>
                       {service.error && (
@@ -178,7 +178,7 @@ export const SystemHealth: React.FC = () => {
         </div>
 
         {/* Auto-refresh note */}
-        <p className="text-xs text-slate-600 text-center mt-6">
+        <p className="text-xs text-text-muted text-center mt-6">
           Auto-refreshes every 30 seconds
         </p>
       </div>

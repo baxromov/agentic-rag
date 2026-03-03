@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from langgraph_sdk import get_client
-from langgraph_sdk.errors import NotFoundError
 from pydantic import BaseModel
 
 from src.api.auth_dependencies import get_current_user
-from src.config.settings import get_settings
+from src.services.graph_runner import get_graph
+from src.services.session_store import (
+    create_session,
+    delete_session,
+    get_session,
+    list_sessions,
+    update_session,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -18,50 +23,34 @@ def _user_id(user: dict) -> str:
 
 
 @router.get("")
-async def list_sessions(user: dict = Depends(get_current_user)):
+async def list_sessions_endpoint(user: dict = Depends(get_current_user)):
     """List all chat sessions for the current user."""
-    settings = get_settings()
-    client = get_client(url=settings.langgraph_api_url)
     uid = _user_id(user)
+    sessions = await list_sessions(uid)
 
-    threads = await client.threads.search(
-        metadata={"user_id": uid},
-        limit=50,
-    )
-
-    sessions = []
-    for t in threads:
-        meta = t.get("metadata", {}) or {}
-        sessions.append({
-            "thread_id": t["thread_id"],
-            "title": meta.get("title", "New Chat"),
-            "created_at": t.get("created_at", ""),
-            "updated_at": t.get("updated_at", ""),
-            "message_count": meta.get("message_count", 0),
-        })
-
-    # Sort by updated_at descending
-    sessions.sort(key=lambda s: s["updated_at"] or "", reverse=True)
-    return sessions
+    return [
+        {
+            "thread_id": s["thread_id"],
+            "title": s.get("title", "New Chat"),
+            "created_at": s.get("created_at", ""),
+            "updated_at": s.get("updated_at", ""),
+            "message_count": s.get("message_count", 0),
+        }
+        for s in sessions
+    ]
 
 
 @router.post("")
-async def create_session(user: dict = Depends(get_current_user)):
+async def create_session_endpoint(user: dict = Depends(get_current_user)):
     """Create a new chat session."""
-    settings = get_settings()
-    client = get_client(url=settings.langgraph_api_url)
     uid = _user_id(user)
+    session = await create_session(user_id=uid)
 
-    thread = await client.threads.create(
-        metadata={"user_id": uid, "title": "New Chat", "message_count": 0}
-    )
-
-    meta = thread.get("metadata", {}) or {}
     return {
-        "thread_id": thread["thread_id"],
-        "title": meta.get("title", "New Chat"),
-        "created_at": thread.get("created_at", ""),
-        "updated_at": thread.get("updated_at", ""),
+        "thread_id": session["thread_id"],
+        "title": session.get("title", "New Chat"),
+        "created_at": session.get("created_at", ""),
+        "updated_at": session.get("updated_at", ""),
         "message_count": 0,
     }
 
@@ -69,25 +58,25 @@ async def create_session(user: dict = Depends(get_current_user)):
 @router.get("/{thread_id}/messages")
 async def get_session_messages(thread_id: str, user: dict = Depends(get_current_user)):
     """Load messages for a specific session."""
-    settings = get_settings()
-    client = get_client(url=settings.langgraph_api_url)
     uid = _user_id(user)
+    graph = get_graph()
 
     # Verify ownership
-    try:
-        thread = await client.threads.get(thread_id)
-    except NotFoundError:
+    session = await get_session(thread_id)
+    if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    meta = thread.get("metadata", {}) or {}
-    if meta.get("user_id") != uid:
+    if session.get("user_id") != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    # Get thread state to extract messages and sources
+    # Get messages from graph checkpointer (PostgreSQL)
+    config = {"configurable": {"thread_id": thread_id}}
+    raw_messages = []
+    raw_documents = []
     try:
-        state = await client.threads.get_state(thread_id)
-        values = state.get("values", {})
-        raw_messages = values.get("messages", [])
-        raw_documents = values.get("documents", [])
+        state = await graph.aget_state(config)
+        if state and state.values:
+            raw_messages = state.values.get("messages", [])
+            raw_documents = state.values.get("documents", [])
     except Exception:
         raw_messages = []
         raw_documents = []
@@ -149,45 +138,36 @@ def _serialize_sources(documents: list) -> list[dict]:
 
 
 @router.patch("/{thread_id}")
-async def update_session(
+async def update_session_endpoint(
     thread_id: str,
     body: UpdateTitleRequest,
     user: dict = Depends(get_current_user),
 ):
     """Update session title."""
-    settings = get_settings()
-    client = get_client(url=settings.langgraph_api_url)
     uid = _user_id(user)
 
     # Verify ownership
-    try:
-        thread = await client.threads.get(thread_id)
-    except NotFoundError:
+    session = await get_session(thread_id)
+    if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    meta = thread.get("metadata", {}) or {}
-    if meta.get("user_id") != uid:
+    if session.get("user_id") != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    updated_meta = {**meta, "title": body.title}
-    await client.threads.update(thread_id, metadata=updated_meta)
+    await update_session(thread_id, title=body.title)
     return {"status": "ok"}
 
 
 @router.delete("/{thread_id}")
-async def delete_session(thread_id: str, user: dict = Depends(get_current_user)):
+async def delete_session_endpoint(thread_id: str, user: dict = Depends(get_current_user)):
     """Delete a chat session."""
-    settings = get_settings()
-    client = get_client(url=settings.langgraph_api_url)
     uid = _user_id(user)
 
     # Verify ownership
-    try:
-        thread = await client.threads.get(thread_id)
-    except NotFoundError:
+    session = await get_session(thread_id)
+    if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    meta = thread.get("metadata", {}) or {}
-    if meta.get("user_id") != uid:
+    if session.get("user_id") != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    await client.threads.delete(thread_id)
+    await delete_session(thread_id)
     return {"status": "deleted"}

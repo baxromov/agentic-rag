@@ -25,20 +25,20 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-page flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg mx-auto mb-4">
             <DocumentTextIcon className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-100">HR Assistant</h1>
-          <p className="text-slate-400 text-sm mt-1">Ipoteka Bank</p>
+          <h1 className="text-2xl font-bold text-text-primary">HR Assistant</h1>
+          <p className="text-text-secondary text-sm mt-1">Ipoteka Bank</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-          <h2 className="text-xl font-semibold text-slate-100 mb-6 text-center">
+        <div className="bg-card border border-border-default rounded-2xl p-8 shadow-2xl">
+          <h2 className="text-xl font-semibold text-text-primary mb-6 text-center">
             Sign In
           </h2>
 
@@ -50,14 +50,14 @@ export const LoginPage: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-2">
                 Username
               </label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-xl outline-none transition-colors text-slate-200 placeholder:text-slate-500"
+                className="w-full px-4 py-3 bg-input border border-border-default focus:border-blue-500 rounded-xl outline-none transition-colors text-text-primary placeholder:text-text-muted"
                 placeholder="Enter your username"
                 autoFocus
                 autoComplete="username"
@@ -65,14 +65,14 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-2">
                 Password
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-xl outline-none transition-colors text-slate-200 placeholder:text-slate-500"
+                className="w-full px-4 py-3 bg-input border border-border-default focus:border-blue-500 rounded-xl outline-none transition-colors text-text-primary placeholder:text-text-muted"
                 placeholder="Enter your password"
                 autoComplete="current-password"
               />

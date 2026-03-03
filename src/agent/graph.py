@@ -3,8 +3,14 @@ import builtins as _builtins
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
+from src.agent.langchain_guardrails import (
+    make_input_safety_node,
+    make_output_safety_node,
+    route_by_safety,
+)
 from src.agent.nodes import (
     make_expand_context_node,
+    make_general_response_node,
     make_generate_node,
     make_grade_documents_node,
     make_greeting_response_node,
@@ -54,14 +60,18 @@ def build_graph(
     reranker: RerankerService,
     llm=None,
     model_name: str | None = None,
+    checkpointer=None,
 ):
-    """Build the agentic RAG StateGraph with intent routing and self-correcting retrieval loop.
+    """Build the agentic RAG StateGraph with LangChain guardrails and self-correcting retrieval.
 
-    Flow: intent_router
-          --[greeting/thanks]--> greeting_response -> END
-          --[hr_query]--> query_prepare -> retrieve -> rerank -> grade_documents
-              --[has relevant]--> expand_context -> generate -> END
-              --[no relevant]--> rewrite_query -> retrieve (max 3 retries)
+    Flow: input_safety (LangChain LLM guardrail)
+          --[blocked]--> END (canned safe response)
+          --[safe]--> intent_router
+              --[greeting/thanks]--> greeting_response -> END
+              --[general_query]--> general_response -> output_safety -> END
+              --[hr_query]--> query_prepare -> retrieve -> rerank -> grade_documents
+                  --[has relevant]--> expand_context -> generate -> output_safety -> END
+                  --[no relevant]--> rewrite_query -> retrieve (max 3 retries)
     """
     settings = get_settings()
     if llm is None:
@@ -81,9 +91,14 @@ def build_graph(
 
     workflow = StateGraph(AgentState)
 
-    # Add nodes — intent routing (no LLM)
-    workflow.add_node("intent_router", make_intent_router_node())
+    # Add nodes — LangChain guardrails (LLM-based input/output safety checks)
+    workflow.add_node("input_safety", make_input_safety_node(llm))
+    workflow.add_node("output_safety", make_output_safety_node(llm))
+
+    # Add nodes — intent routing (LLM classifies hr_query vs general_query)
+    workflow.add_node("intent_router", make_intent_router_node(llm))
     workflow.add_node("greeting_response", make_greeting_response_node())
+    workflow.add_node("general_response", make_general_response_node(llm))
 
     # Add nodes — RAG pipeline
     workflow.add_node("query_prepare", make_query_prepare_node(llm))
@@ -95,17 +110,29 @@ def build_graph(
     workflow.add_node("generate", make_generate_node(llm, model_name))
     workflow.add_node("rewrite_query", make_rewrite_query_node(llm))
 
-    # Define edges — intent routing entry point
-    workflow.set_entry_point("intent_router")
+    # Define edges — input guardrail as entry point
+    workflow.set_entry_point("input_safety")
+    workflow.add_conditional_edges(
+        "input_safety",
+        route_by_safety,
+        {
+            "blocked": END,  # Blocked queries get a canned response, skip all processing
+            "safe": "intent_router",
+        },
+    )
+
+    # Define edges — intent routing
     workflow.add_conditional_edges(
         "intent_router",
         route_by_intent,
         {
             "greeting_response": "greeting_response",
+            "general_response": "general_response",
             "rewrite_for_retrieval": "query_prepare",
         },
     )
     workflow.add_edge("greeting_response", END)
+    workflow.add_edge("general_response", "output_safety")  # Output guardrail check
 
     # Define edges — RAG pipeline
     workflow.add_edge("query_prepare", "retrieve")
@@ -122,16 +149,21 @@ def build_graph(
     )
     workflow.add_edge("expand_context", "generate")
     workflow.add_edge("rewrite_query", "retrieve")
-    workflow.add_edge("generate", END)
+    workflow.add_edge("generate", "output_safety")  # Output guardrail check
+    workflow.add_edge("output_safety", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)
 
 
-async def create_default_graph():
+async def create_default_graph(checkpointer=None):
     """Create graph with default services — cached in builtins to survive module reloads.
 
-    Langfuse callbacks are created per-LLM-call inside nodes (not attached
-    to the graph) so each invocation gets a fresh trace.
+    Langfuse tracing is handled at the chat route level: one trace per graph
+    execution, with callbacks propagated via RunnableConfig to all nodes.
+
+    Args:
+        checkpointer: Optional checkpointer for state persistence.
+                      Pass AsyncPostgresSaver for persistent chat history.
     """
     cached = getattr(_builtins, "_rag_cached_graph", None)
     if cached is not None:
@@ -142,7 +174,7 @@ async def create_default_graph():
     qdrant = await QdrantService.create(settings)
     reranker = RerankerService(settings)
     llm = create_llm(settings)
-    graph = build_graph(embedding, qdrant, reranker, llm)
+    graph = build_graph(embedding, qdrant, reranker, llm, checkpointer=checkpointer)
 
     _builtins._rag_cached_graph = graph
     return graph

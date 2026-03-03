@@ -14,12 +14,14 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=6)
     role: UserRole = UserRole.USER
     full_name: str = ""
+    department: str = ""
 
 
 class UserUpdate(BaseModel):
     password: str | None = None
     role: UserRole | None = None
     full_name: str | None = None
+    department: str | None = None
     is_active: bool | None = None
 
 
@@ -28,6 +30,7 @@ class UserResponse(BaseModel):
     username: str
     role: UserRole
     full_name: str
+    department: str
     is_active: bool
     created_at: datetime
     last_login: datetime | None = None

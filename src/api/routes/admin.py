@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 import httpx
 
 from src.api.auth_dependencies import require_admin
@@ -18,6 +18,7 @@ def _user_response(user: dict) -> UserResponse:
         username=user["username"],
         role=user["role"],
         full_name=user.get("full_name", ""),
+        department=user.get("department", ""),
         is_active=user.get("is_active", True),
         created_at=user.get("created_at", datetime.now(timezone.utc)),
         last_login=user.get("last_login"),
@@ -44,6 +45,7 @@ async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
         "password_hash": hash_password(data.password),
         "role": data.role.value,
         "full_name": data.full_name,
+        "department": data.department,
         "is_active": True,
         "created_at": datetime.now(timezone.utc),
         "last_login": None,
@@ -66,6 +68,8 @@ async def update_user(user_id: str, data: UserUpdate, _: dict = Depends(require_
         update_fields["role"] = data.role.value
     if data.full_name is not None:
         update_fields["full_name"] = data.full_name
+    if data.department is not None:
+        update_fields["department"] = data.department
     if data.is_active is not None:
         update_fields["is_active"] = data.is_active
 
@@ -106,6 +110,45 @@ async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
     await db.users.delete_one({"_id": ObjectId(user_id)})
+    return {"deleted": True}
+
+
+# ── Department CRUD ──────────────────────────────────────────────
+
+@router.get("/departments")
+async def list_departments(_: dict = Depends(require_admin)):
+    db = await get_mongodb()
+    docs = await db.departments.find().sort("name", 1).to_list(100)
+    return [{"id": str(d["_id"]), "name": d["name"]} for d in docs]
+
+
+@router.post("/departments", status_code=status.HTTP_201_CREATED)
+async def create_department(data: dict, _: dict = Depends(require_admin)):
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Department name is required")
+
+    db = await get_mongodb()
+    existing = await db.departments.find_one({"name": name})
+    if existing:
+        raise HTTPException(status_code=400, detail="Department already exists")
+
+    result = await db.departments.insert_one({"name": name})
+    return {"id": str(result.inserted_id), "name": name}
+
+
+@router.delete("/departments/{department_id}")
+async def delete_department(department_id: str, _: dict = Depends(require_admin)):
+    from bson import ObjectId
+
+    db = await get_mongodb()
+    try:
+        result = await db.departments.delete_one({"_id": ObjectId(department_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid department ID")
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Department not found")
     return {"deleted": True}
 
 
@@ -283,3 +326,162 @@ async def system_health(_: dict = Depends(require_admin)):
 
     all_healthy = all(s["status"] == "healthy" for s in services.values())
     return {"status": "healthy" if all_healthy else "degraded", "services": services}
+
+
+@router.get("/analytics")
+async def get_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    _: dict = Depends(require_admin),
+):
+    """Return analytics data: query volume, user activity, feedback stats."""
+    db = await get_mongodb()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # --- Query volume by day (from chat_sessions) ---
+    query_volume_pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {
+            "$group": {
+                "_id": {
+                    "$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}
+                },
+                "count": {"$sum": 1},
+                "messages": {"$sum": "$message_count"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    query_volume = []
+    async for doc in db.chat_sessions.aggregate(query_volume_pipeline):
+        query_volume.append(
+            {"date": doc["_id"], "sessions": doc["count"], "messages": doc["messages"]}
+        )
+
+    # --- User activity by day ---
+    user_activity_pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {
+            "$group": {
+                "_id": {
+                    "date": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%d",
+                            "date": "$created_at",
+                        }
+                    },
+                    "user": "$user_id",
+                },
+            }
+        },
+        {"$group": {"_id": "$_id.date", "active_users": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    user_activity = []
+    async for doc in db.chat_sessions.aggregate(user_activity_pipeline):
+        user_activity.append(
+            {"date": doc["_id"], "active_users": doc["active_users"]}
+        )
+
+    # --- Feedback stats by day ---
+    feedback_pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {
+            "$group": {
+                "_id": {
+                    "date": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%d",
+                            "date": "$created_at",
+                        }
+                    },
+                    "rating": "$rating",
+                },
+                "count": {"$sum": 1},
+            }
+        },
+        {"$sort": {"_id.date": 1}},
+    ]
+    feedback_by_day: dict[str, dict] = {}
+    async for doc in db.message_feedback.aggregate(feedback_pipeline):
+        date = doc["_id"]["date"]
+        rating = doc["_id"]["rating"]
+        if date not in feedback_by_day:
+            feedback_by_day[date] = {"date": date, "positive": 0, "negative": 0}
+        if rating == "up":
+            feedback_by_day[date]["positive"] = doc["count"]
+        else:
+            feedback_by_day[date]["negative"] = doc["count"]
+    feedback_timeline = sorted(feedback_by_day.values(), key=lambda x: x["date"])
+
+    # --- Top users by session count ---
+    top_users_pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {
+            "$group": {
+                "_id": "$user_id",
+                "sessions": {"$sum": 1},
+                "messages": {"$sum": "$message_count"},
+            }
+        },
+        {"$sort": {"sessions": -1}},
+        {"$limit": 10},
+    ]
+    top_users = []
+    async for doc in db.chat_sessions.aggregate(top_users_pipeline):
+        user_id = doc["_id"]
+        username = "unknown"
+        if user_id:
+            from bson import ObjectId
+            try:
+                user = await db.users.find_one({"_id": ObjectId(user_id)})
+                if user:
+                    username = user.get("full_name") or user["username"]
+            except Exception:
+                pass
+        top_users.append(
+            {"user": username, "sessions": doc["sessions"], "messages": doc["messages"]}
+        )
+
+    # --- Summary totals ---
+    total_sessions = await db.chat_sessions.count_documents({})
+    total_sessions_period = await db.chat_sessions.count_documents(
+        {"created_at": {"$gte": since}}
+    )
+    total_users = await db.users.count_documents({})
+    total_feedback = await db.message_feedback.count_documents({})
+    positive_feedback = await db.message_feedback.count_documents({"rating": "up"})
+    negative_feedback = await db.message_feedback.count_documents({"rating": "down"})
+
+    # Document stats from Qdrant + MinIO
+    doc_stats = {"total_documents": 0, "total_chunks": 0}
+    try:
+        from src.api.dependencies import get_qdrant_service
+        qdrant = await get_qdrant_service()
+        info = await qdrant.get_collection_info()
+        doc_stats["total_chunks"] = info.get("points_count", 0)
+    except Exception:
+        pass
+    try:
+        from src.api.dependencies import get_minio_service
+        minio = get_minio_service()
+        objects = list(minio.client.list_objects(minio.bucket_name, recursive=True))
+        doc_stats["total_documents"] = len(objects)
+    except Exception:
+        pass
+
+    return {
+        "summary": {
+            "total_sessions": total_sessions,
+            "sessions_in_period": total_sessions_period,
+            "total_users": total_users,
+            "total_feedback": total_feedback,
+            "positive_feedback": positive_feedback,
+            "negative_feedback": negative_feedback,
+            "total_documents": doc_stats["total_documents"],
+            "total_chunks": doc_stats["total_chunks"],
+        },
+        "query_volume": query_volume,
+        "user_activity": user_activity,
+        "feedback_timeline": feedback_timeline,
+        "top_users": top_users,
+    }

@@ -65,6 +65,9 @@ class KnowledgeBaseResponse(BaseModel):
     total_size: int
     documents: list[DocumentMetadata]
     folder_tree: list[FolderNode]
+    page: int = 1
+    page_size: int = 20
+    total_pages: int = 1
 
 
 # -- Query --

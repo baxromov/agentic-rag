@@ -79,8 +79,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto p-4 bg-slate-900 rounded-lg border border-slate-800">
-      <h3 className="text-lg font-semibold text-slate-100 mb-4">
+    <div className="w-full max-w-md mx-auto p-4 bg-card rounded-lg border border-border-default">
+      <h3 className="text-lg font-semibold text-text-primary mb-4">
         Upload Document
       </h3>
 
@@ -88,7 +88,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       <div className="mb-4">
         <label
           htmlFor="file-upload"
-          className="block text-sm font-medium text-slate-300 mb-2"
+          className="block text-sm font-medium text-text-secondary mb-2"
         >
           Choose File (PDF, DOCX, TXT)
         </label>
@@ -98,7 +98,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
           accept=".pdf,.docx,.txt,.md"
           onChange={handleFileChange}
           disabled={uploading}
-          className="block w-full text-sm text-slate-400
+          className="block w-full text-sm text-text-secondary
             file:mr-4 file:py-2 file:px-4
             file:rounded-lg file:border-0
             file:text-sm file:font-semibold
@@ -108,7 +108,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
             disabled:opacity-50 disabled:cursor-not-allowed"
         />
         {file && (
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="mt-2 text-sm text-text-secondary">
             Selected: {file.name} ({(file.size / 1024).toFixed(2)} KB)
           </p>
         )}
@@ -171,7 +171,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       )}
 
       {/* Info */}
-      <p className="mt-4 text-xs text-slate-500">
+      <p className="mt-4 text-xs text-text-muted">
         Supported formats: PDF, DOCX, TXT, Markdown. Documents will be chunked
         and indexed for retrieval.
       </p>

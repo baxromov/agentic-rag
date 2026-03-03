@@ -2,7 +2,9 @@ from collections import defaultdict
 from datetime import datetime
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+import math
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
 from src.api.auth_dependencies import get_current_user, require_admin
@@ -166,6 +168,11 @@ async def get_document_chunks(
 
 @router.get("/knowledge-base", response_model=KnowledgeBaseResponse)
 async def get_knowledge_base(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str = Query("", description="Filter documents by filename"),
+    sort_by: str = Query("last_modified", description="Sort field: last_modified, filename, size"),
+    sort_order: str = Query("desc", description="Sort order: asc or desc"),
     minio: MinioService = Depends(get_minio_service),
     qdrant: QdrantService = Depends(get_qdrant_service),
     _user: dict = Depends(get_current_user),
@@ -227,15 +234,43 @@ async def get_knowledge_base(
             )
         )
 
+    # Filter by search query
+    if search.strip():
+        search_lower = search.strip().lower()
+        documents_metadata = [
+            doc for doc in documents_metadata
+            if search_lower in doc.filename.lower()
+        ]
+
+    # Sort
+    reverse = sort_order == "desc"
+    if sort_by == "filename":
+        documents_metadata.sort(key=lambda d: d.filename.lower(), reverse=reverse)
+    elif sort_by == "size":
+        documents_metadata.sort(key=lambda d: d.size, reverse=reverse)
+    else:  # last_modified
+        documents_metadata.sort(key=lambda d: d.last_modified, reverse=reverse)
+
+    # Pagination
+    total_filtered = len(documents_metadata)
+    total_pages = max(1, math.ceil(total_filtered / page_size))
+    page = min(page, total_pages)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated_docs = documents_metadata[start:end]
+
     # Build folder tree structure
-    folder_tree = _build_folder_tree(documents_metadata)
+    folder_tree = _build_folder_tree(paginated_docs)
 
     return KnowledgeBaseResponse(
-        total_documents=len(documents_metadata),
+        total_documents=total_filtered,
         total_chunks=points_count,
         total_size=total_size,
-        documents=documents_metadata,
+        documents=paginated_docs,
         folder_tree=folder_tree,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
     )
 
 

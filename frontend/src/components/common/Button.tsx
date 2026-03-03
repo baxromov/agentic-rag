@@ -16,8 +16,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
     const variantClasses = {
       primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
-      secondary: 'bg-slate-200 text-slate-900 hover:bg-slate-300 focus:ring-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600',
-      ghost: 'text-slate-700 hover:bg-slate-100 focus:ring-slate-500 dark:text-slate-300 dark:hover:bg-slate-800',
+      secondary: 'bg-input text-text-primary hover:bg-hover focus:ring-border-default',
+      ghost: 'text-text-secondary hover:bg-hover focus:ring-border-default',
     };
 
     const sizeClasses = {

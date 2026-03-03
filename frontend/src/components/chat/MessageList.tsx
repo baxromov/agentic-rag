@@ -73,10 +73,10 @@ export const MessageList: React.FC<MessageListProps> = ({
               />
             </svg>
           </div>
-          <h2 className="text-3xl font-bold text-slate-100 mb-3">
+          <h2 className="text-3xl font-bold text-text-primary mb-3">
             HR Policy Assistant
           </h2>
-          <p className="text-slate-400 max-w-md text-lg">
+          <p className="text-text-secondary max-w-md text-lg">
             I can help you find answers about Ipoteka Bank's company policies,
             internal rules, leave policies, benefits, and more. Ask your
             question in any language!
@@ -95,7 +95,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 
           {/* Example questions */}
           <div className="mt-6 space-y-2 max-w-lg">
-            <p className="text-slate-500 text-sm font-medium mb-3">
+            <p className="text-text-muted text-sm font-medium mb-3">
               Try asking:
             </p>
             {[
@@ -107,7 +107,7 @@ export const MessageList: React.FC<MessageListProps> = ({
               <button
                 key={idx}
                 onClick={() => onSuggestionClick?.(question)}
-                className="w-full text-left px-4 py-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600 rounded-xl text-sm text-slate-300 hover:text-slate-100 transition-all"
+                className="w-full text-left px-4 py-3 bg-input/50 hover:bg-input border border-border-default/50 hover:border-border-default rounded-xl text-sm text-text-secondary hover:text-text-primary transition-all"
               >
                 {question}
               </button>
@@ -160,15 +160,15 @@ export const MessageList: React.FC<MessageListProps> = ({
                 </div>
               </div>
               <div className="flex-1">
-                <div className="bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 shadow-sm">
+                <div className="bg-input border border-border-default rounded-2xl px-5 py-4 shadow-sm">
                   <div className="prose prose-invert max-w-none">
-                    <p className="text-slate-200 whitespace-pre-wrap">
+                    <p className="text-text-primary whitespace-pre-wrap">
                       {currentResponse}
                     </p>
                   </div>
                   <div className="mt-2 flex items-center gap-2">
                     <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-text-muted">
                       Generating response...
                     </span>
                   </div>

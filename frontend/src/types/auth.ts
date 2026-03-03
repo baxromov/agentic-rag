@@ -5,6 +5,7 @@ export interface User {
   username: string;
   role: UserRole;
   full_name: string;
+  department: string;
   is_active: boolean;
   created_at: string;
   last_login: string | null;
@@ -27,11 +28,13 @@ export interface UserCreate {
   password: string;
   role: UserRole;
   full_name: string;
+  department: string;
 }
 
 export interface UserUpdate {
   password?: string;
   role?: UserRole;
   full_name?: string;
+  department?: string;
   is_active?: boolean;
 }

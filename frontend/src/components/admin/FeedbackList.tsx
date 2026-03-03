@@ -50,22 +50,22 @@ export const FeedbackList: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-950">
-        <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-full bg-page">
+        <div className="w-12 h-12 border-4 border-border-default border-t-blue-500 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-slate-950">
+    <div className="h-full overflow-auto bg-page">
       <div className="p-8 max-w-5xl">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-text-primary flex items-center gap-3">
               <HandThumbUpIcon className="w-8 h-8 text-blue-400" />
               User Feedback
             </h1>
-            <p className="text-slate-400 mt-1">
+            <p className="text-text-secondary mt-1">
               Review user feedback on assistant responses
             </p>
           </div>
@@ -73,26 +73,26 @@ export const FeedbackList: React.FC = () => {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
-            <p className="text-2xl font-bold text-slate-100">
+          <div className="bg-card border border-border-default rounded-xl p-4 text-center">
+            <p className="text-2xl font-bold text-text-primary">
               {feedbacks.length}
             </p>
-            <p className="text-sm text-slate-400">Total</p>
+            <p className="text-sm text-text-secondary">Total</p>
           </div>
-          <div className="bg-slate-900 border border-green-500/20 rounded-xl p-4 text-center">
+          <div className="bg-card border border-green-500/20 rounded-xl p-4 text-center">
             <p className="text-2xl font-bold text-green-400">{upCount}</p>
-            <p className="text-sm text-slate-400">Positive</p>
+            <p className="text-sm text-text-secondary">Positive</p>
           </div>
-          <div className="bg-slate-900 border border-red-500/20 rounded-xl p-4 text-center">
+          <div className="bg-card border border-red-500/20 rounded-xl p-4 text-center">
             <p className="text-2xl font-bold text-red-400">{downCount}</p>
-            <p className="text-sm text-slate-400">Negative</p>
+            <p className="text-sm text-text-secondary">Negative</p>
           </div>
         </div>
 
         {/* Filter */}
         <div className="flex items-center gap-2 mb-6">
-          <FunnelIcon className="w-5 h-5 text-slate-400" />
-          <span className="text-sm text-slate-400">Filter:</span>
+          <FunnelIcon className="w-5 h-5 text-text-secondary" />
+          <span className="text-sm text-text-secondary">Filter:</span>
           {(["all", "up", "down"] as const).map((f) => (
             <button
               key={f}
@@ -100,7 +100,7 @@ export const FeedbackList: React.FC = () => {
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 filter === f
                   ? "bg-blue-600 text-white"
-                  : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  : "bg-input text-text-secondary hover:bg-hover"
               }`}
             >
               {f === "all" ? "All" : f === "up" ? "Positive" : "Negative"}
@@ -110,7 +110,7 @@ export const FeedbackList: React.FC = () => {
 
         {/* Feedback List */}
         {feedbacks.length === 0 ? (
-          <div className="text-center py-16 text-slate-500">
+          <div className="text-center py-16 text-text-muted">
             No feedback found
           </div>
         ) : (
@@ -118,7 +118,7 @@ export const FeedbackList: React.FC = () => {
             {feedbacks.map((fb) => (
               <div
                 key={fb._id}
-                className={`bg-slate-900 border rounded-xl p-4 ${
+                className={`bg-card border rounded-xl p-4 ${
                   fb.rating === "up"
                     ? "border-green-500/20"
                     : "border-red-500/20"
@@ -132,28 +132,28 @@ export const FeedbackList: React.FC = () => {
                       <HandThumbDownIcon className="w-5 h-5 text-red-400" />
                     )}
                     <div>
-                      <span className="text-sm font-medium text-slate-200">
+                      <span className="text-sm font-medium text-text-primary">
                         {fb.username}
                       </span>
-                      <span className="text-slate-600 mx-2">|</span>
-                      <span className="text-xs text-slate-500 font-mono">
+                      <span className="text-text-muted mx-2">|</span>
+                      <span className="text-xs text-text-muted font-mono">
                         Session: {fb.thread_id.slice(0, 8)}...
                       </span>
-                      <span className="text-slate-600 mx-2">|</span>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-text-muted mx-2">|</span>
+                      <span className="text-xs text-text-muted">
                         Message #{fb.message_index}
                       </span>
                     </div>
                   </div>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-text-muted">
                     {fb.updated_at
                       ? new Date(fb.updated_at).toLocaleString()
                       : ""}
                   </span>
                 </div>
                 {fb.note && (
-                  <div className="mt-3 ml-8 p-3 bg-slate-800 rounded-lg">
-                    <p className="text-sm text-slate-300">{fb.note}</p>
+                  <div className="mt-3 ml-8 p-3 bg-input rounded-lg">
+                    <p className="text-sm text-text-secondary">{fb.note}</p>
                   </div>
                 )}
               </div>

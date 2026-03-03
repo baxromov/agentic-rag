@@ -29,7 +29,7 @@ export const ResponseStyleSelector: React.FC = () => {
 
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+      <label className="block text-sm font-medium text-text-secondary mb-2">
         Response Style
       </label>
       <RadioGroup
@@ -44,8 +44,8 @@ export const ResponseStyleSelector: React.FC = () => {
               className={({ checked }) =>
                 `cursor-pointer rounded-lg px-3 py-2 text-center border ${
                   checked
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 text-blue-900 dark:text-blue-100'
-                    : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    ? 'bg-blue-900/20 border-blue-500 text-blue-200'
+                    : 'bg-input border-border-default text-text-primary hover:bg-hover'
                 } focus:outline-none transition-colors`
               }
             >
@@ -55,8 +55,8 @@ export const ResponseStyleSelector: React.FC = () => {
                     as="p"
                     className={`text-sm font-medium ${
                       checked
-                        ? 'text-blue-900 dark:text-blue-100'
-                        : 'text-slate-900 dark:text-slate-100'
+                        ? 'text-blue-200'
+                        : 'text-text-primary'
                     }`}
                   >
                     {style.label}
@@ -65,8 +65,8 @@ export const ResponseStyleSelector: React.FC = () => {
                     as="span"
                     className={`text-xs ${
                       checked
-                        ? 'text-blue-700 dark:text-blue-300'
-                        : 'text-slate-500 dark:text-slate-400'
+                        ? 'text-blue-300'
+                        : 'text-text-muted'
                     }`}
                   >
                     {style.description}

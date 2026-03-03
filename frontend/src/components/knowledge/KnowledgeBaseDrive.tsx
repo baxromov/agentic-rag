@@ -1,9 +1,9 @@
 /**
  * Google Drive-style Knowledge Base
- * Features: folder creation, file preview, RAG search
+ * Features: folder creation, file preview, paginated document list
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   DocumentTextIcon,
   FolderIcon,
@@ -18,6 +18,8 @@ import {
   XMarkIcon,
   DocumentArrowUpIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import { useUploadStore } from "../../store/uploadStore";
@@ -42,15 +44,12 @@ interface KnowledgeBaseData {
   total_chunks: number;
   total_size: number;
   documents: DocumentMetadata[];
+  page: number;
+  page_size: number;
+  total_pages: number;
 }
 
-interface RAGSearchResult {
-  content: string;
-  document_id: string;
-  filename: string;
-  score: number;
-  metadata: Record<string, unknown>;
-}
+const PAGE_SIZE = 20;
 
 const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return "0 Bytes";
@@ -114,9 +113,8 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
-  const [ragSearchQuery, setRagSearchQuery] = useState("");
-  const [ragResults, setRagResults] = useState<RAGSearchResult[]>([]);
-  const [ragSearching, setRagSearching] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedDoc, setSelectedDoc] = useState<DocumentMetadata | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewTab, setPreviewTab] = useState<"preview" | "details">("preview");
@@ -134,47 +132,37 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const { user } = useAuthStore();
   const isAdmin = user?.role === "admin";
 
-  const fetchKnowledgeBase = async () => {
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const fetchKnowledgeBase = useCallback(async (page = 1, search = "") => {
     try {
       setLoading(true);
-      const response = await apiFetch(`${API_BASE_URL}/documents/knowledge-base`);
+      const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(PAGE_SIZE),
+      });
+      if (search.trim()) params.set("search", search.trim());
+      const response = await apiFetch(`${API_BASE_URL}/documents/knowledge-base?${params}`);
       if (!response.ok) throw new Error("Failed to fetch knowledge base");
       const result = await response.json();
-      console.log("Fetched knowledge base data:", result);
       setData(result);
     } catch (err) {
       console.error("Failed to load knowledge base:", err);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchKnowledgeBase();
   }, []);
 
-  const handleRAGSearch = async () => {
-    if (!ragSearchQuery.trim()) return;
-
-    setRagSearching(true);
-    try {
-      const response = await apiFetch(`${API_BASE_URL}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: ragSearchQuery,
-          top_k: 5,
-        }),
-      });
-      if (!response.ok) throw new Error("RAG search failed");
-      const result = await response.json();
-      setRagResults(result.documents || []);
-    } catch (err) {
-      console.error("RAG search error:", err);
-    } finally {
-      setRagSearching(false);
-    }
-  };
+  useEffect(() => {
+    fetchKnowledgeBase(currentPage, debouncedSearch);
+  }, [currentPage, debouncedSearch, fetchKnowledgeBase]);
 
   const isPdf = (doc: DocumentMetadata) => doc.file_type.toLowerCase() === "pdf";
 
@@ -238,7 +226,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete document");
-      await fetchKnowledgeBase();
+      await fetchKnowledgeBase(currentPage, debouncedSearch);
       if (selectedDoc?.document_id === docId) {
         setSelectedDoc(null);
         setShowPreview(false);
@@ -284,10 +272,10 @@ export const KnowledgeBaseDrive: React.FC = () => {
       !isProcessing &&
       tasks.some((t) => t.status === "success")
     ) {
-      fetchKnowledgeBase();
+      fetchKnowledgeBase(currentPage, debouncedSearch);
     }
     prevProcessingRef.current = isProcessing;
-  }, [isProcessing, tasks]);
+  }, [isProcessing, tasks, currentPage, debouncedSearch, fetchKnowledgeBase]);
 
   // Close upload menu on outside click
   useEffect(() => {
@@ -313,30 +301,45 @@ export const KnowledgeBaseDrive: React.FC = () => {
     setShowNewFolder(false);
   };
 
-  const filteredDocs =
-    data?.documents.filter((doc) =>
-      doc.filename.toLowerCase().includes(searchQuery.toLowerCase()),
-    ) || [];
+  const documents = data?.documents || [];
+  const totalPages = data?.total_pages || 1;
 
-  if (loading) {
+  // Generate page numbers to display
+  const getPageNumbers = () => {
+    const pages: (number | "...")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("...");
+      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+        pages.push(i);
+      }
+      if (currentPage < totalPages - 2) pages.push("...");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
+
+  if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-950">
+      <div className="flex items-center justify-center h-screen bg-page">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-4"></div>
-          <p className="text-slate-400 font-medium">Loading...</p>
+          <div className="w-16 h-16 border-4 border-border-default rounded-full animate-spin border-t-blue-500 mx-auto mb-4"></div>
+          <p className="text-text-secondary font-medium">Loading...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-950">
+    <div className="h-screen flex flex-col bg-page">
       {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900 px-6 py-4 flex-shrink-0">
+      <header className="border-b border-border-default bg-card px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <FolderIcon className="w-8 h-8 text-blue-400" />
-            <h1 className="text-2xl font-semibold text-slate-100">
+            <h1 className="text-2xl font-semibold text-text-primary">
               Knowledge Base
             </h1>
           </div>
@@ -354,27 +357,27 @@ export const KnowledgeBaseDrive: React.FC = () => {
                   <ChevronDownIcon className="w-4 h-4 ml-1" />
                 </button>
                 {showUploadMenu && (
-                  <div className="absolute right-0 mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                  <div className="absolute right-0 mt-2 w-52 bg-input border border-border-default rounded-lg shadow-xl z-20 overflow-hidden">
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-hover text-text-primary transition-colors text-left"
                     >
                       <DocumentArrowUpIcon className="w-5 h-5 text-blue-400" />
                       <div>
                         <p className="text-sm font-medium">Upload Files</p>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-text-secondary">
                           Select one or more files
                         </p>
                       </div>
                     </button>
                     <button
                       onClick={() => folderInputRef.current?.click()}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-200 transition-colors text-left border-t border-slate-700"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-hover text-text-primary transition-colors text-left border-t border-border-default"
                     >
                       <FolderArrowDownIcon className="w-5 h-5 text-purple-400" />
                       <div>
                         <p className="text-sm font-medium">Upload Folder</p>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-text-secondary">
                           Upload entire folder
                         </p>
                       </div>
@@ -406,7 +409,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
             {isAdmin && (
               <button
                 onClick={() => setShowNewFolder(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-input border border-border-default hover:bg-hover text-text-secondary rounded-lg transition-colors"
               >
                 <FolderPlusIcon className="w-5 h-5" />
                 <span className="font-medium">New Folder</span>
@@ -414,137 +417,81 @@ export const KnowledgeBaseDrive: React.FC = () => {
             )}
 
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-input rounded-lg p-1">
               <button
                 onClick={() => setViewMode("grid")}
-                className={`p-2 rounded ${viewMode === "grid" ? "bg-slate-700 shadow-sm" : "hover:bg-slate-700"}`}
+                className={`p-2 rounded ${viewMode === "grid" ? "bg-hover shadow-sm" : "hover:bg-hover"}`}
               >
-                <Squares2X2Icon className="w-5 h-5 text-slate-300" />
+                <Squares2X2Icon className="w-5 h-5 text-text-secondary" />
               </button>
               <button
                 onClick={() => setViewMode("list")}
-                className={`p-2 rounded ${viewMode === "list" ? "bg-slate-700 shadow-sm" : "hover:bg-slate-700"}`}
+                className={`p-2 rounded ${viewMode === "list" ? "bg-hover shadow-sm" : "hover:bg-hover"}`}
               >
-                <ListBulletIcon className="w-5 h-5 text-slate-300" />
+                <ListBulletIcon className="w-5 h-5 text-text-secondary" />
               </button>
             </div>
           </div>
         </div>
 
         {/* Search Bar */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1 relative">
-            <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
-            <input
-              type="text"
-              placeholder="Search in Drive"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-2.5 bg-slate-800 hover:bg-slate-750 focus:bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-full outline-none transition-all text-slate-200 placeholder:text-slate-500"
-            />
-          </div>
-
-          {/* RAG Search */}
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="RAG Search (AI-powered)"
-              value={ragSearchQuery}
-              onChange={(e) => setRagSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleRAGSearch()}
-              className="w-80 px-4 py-2.5 bg-purple-900/20 border-2 border-purple-700/50 focus:border-purple-500 rounded-full outline-none transition-all text-slate-200 placeholder:text-slate-500"
-            />
-            <button
-              onClick={handleRAGSearch}
-              disabled={ragSearching}
-              className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-full font-medium transition-all disabled:opacity-50"
-            >
-              {ragSearching ? "Searching..." : "Search"}
-            </button>
-          </div>
+        <div className="relative">
+          <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+          <input
+            type="text"
+            placeholder="Search documents..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-12 pr-4 py-2.5 bg-input hover:bg-hover focus:bg-input border border-border-default focus:border-blue-500 rounded-full outline-none transition-all text-text-primary placeholder:text-text-muted"
+          />
         </div>
       </header>
 
       {/* Stats Bar */}
-      <div className="px-6 py-3 bg-slate-900/50 border-b border-slate-800 flex items-center gap-6 text-sm text-slate-400 flex-shrink-0">
+      <div className="px-6 py-3 bg-card/50 border-b border-border-default flex items-center gap-6 text-sm text-text-secondary flex-shrink-0">
         <div>
-          <span className="font-semibold text-slate-200">
+          <span className="font-semibold text-text-primary">
             {data?.total_documents || 0}
           </span>{" "}
           documents
         </div>
         <div>
-          <span className="font-semibold text-slate-200">
+          <span className="font-semibold text-text-primary">
             {data?.total_chunks || 0}
           </span>{" "}
           chunks
         </div>
         <div>
-          <span className="font-semibold text-slate-200">
+          <span className="font-semibold text-text-primary">
             {formatFileSize(data?.total_size || 0)}
           </span>{" "}
           storage used
         </div>
+        {loading && (
+          <div className="ml-auto">
+            <div className="w-4 h-4 border-2 border-border-default border-t-blue-500 rounded-full animate-spin" />
+          </div>
+        )}
       </div>
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {/* RAG Search Results */}
-        {ragResults.length > 0 && (
-          <div className="mb-6 bg-purple-900/20 border-2 border-purple-700/50 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-slate-100">
-                RAG Search Results ({ragResults.length})
-              </h2>
-              <button
-                onClick={() => setRagResults([])}
-                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-              >
-                <XMarkIcon className="w-5 h-5 text-slate-400" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              {ragResults.map((result, idx) => (
-                <div
-                  key={idx}
-                  className="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-sm"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <DocumentTextIcon className="w-5 h-5 text-purple-400" />
-                      <span className="font-medium text-slate-100">
-                        {result.filename}
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-purple-400">
-                      {Math.round(result.score * 100)}% match
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-300 line-clamp-2">
-                    {result.content}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Documents Grid/List */}
         {viewMode === "grid" ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {filteredDocs.map((doc) => (
+            {documents.map((doc) => (
               <div
                 key={doc.document_id}
-                className="group border border-slate-800 rounded-xl p-4 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer bg-slate-900"
+                className="group border border-border-default rounded-xl p-4 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer bg-card"
                 onClick={() => openPreview(doc)}
               >
                 <div className="flex flex-col items-center gap-3">
                   {getFileIcon(doc.file_type)}
                   <div className="w-full text-center">
-                    <p className="text-sm font-medium text-slate-200 truncate">
+                    <p className="text-sm font-medium text-text-primary truncate">
                       {doc.filename}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-text-muted mt-1">
                       {formatFileSize(doc.size)}
                     </p>
                   </div>
@@ -587,35 +534,35 @@ export const KnowledgeBaseDrive: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div className="bg-slate-900 rounded-xl border border-slate-800">
+          <div className="bg-card rounded-xl border border-border-default">
             <table className="w-full">
-              <thead className="bg-slate-800/50 border-b border-slate-700">
+              <thead className="bg-input/50 border-b border-border-default">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-text-muted uppercase">
                     Name
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-text-muted uppercase">
                     Type
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-text-muted uppercase">
                     Size
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-text-muted uppercase">
                     Chunks
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-text-muted uppercase">
                     Modified
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-text-muted uppercase">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
-                {filteredDocs.map((doc) => (
+              <tbody className="divide-y divide-border-default">
+                {documents.map((doc) => (
                   <tr
                     key={doc.document_id}
-                    className="hover:bg-slate-800/50 cursor-pointer"
+                    className="hover:bg-input/50 cursor-pointer"
                     onClick={() => openPreview(doc)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -623,23 +570,23 @@ export const KnowledgeBaseDrive: React.FC = () => {
                         <div className="flex-shrink-0">
                           {getFileIcon(doc.file_type)}
                         </div>
-                        <span className="text-sm font-medium text-slate-200">
+                        <span className="text-sm font-medium text-text-primary">
                           {doc.filename}
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-3 py-1 bg-slate-800 text-slate-300 text-xs font-medium rounded-full uppercase">
+                      <span className="px-3 py-1 bg-input text-text-secondary text-xs font-medium rounded-full uppercase">
                         {doc.file_type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
                       {formatFileSize(doc.size)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
                       {doc.chunks_count}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
                       {formatDate(doc.last_modified)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
@@ -685,10 +632,51 @@ export const KnowledgeBaseDrive: React.FC = () => {
           </div>
         )}
 
-        {filteredDocs.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-500">
+        {documents.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-64 text-text-muted">
             <FolderIcon className="w-20 h-20 mb-4" />
             <p className="text-lg font-medium">No documents found</p>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-6 pb-2">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="p-2 rounded-lg hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeftIcon className="w-5 h-5 text-text-secondary" />
+            </button>
+
+            {getPageNumbers().map((page, idx) =>
+              page === "..." ? (
+                <span key={`dots-${idx}`} className="px-2 text-text-muted">
+                  ...
+                </span>
+              ) : (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page as number)}
+                  className={`min-w-[36px] h-9 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === page
+                      ? "bg-blue-600 text-white"
+                      : "hover:bg-hover text-text-secondary"
+                  }`}
+                >
+                  {page}
+                </button>
+              ),
+            )}
+
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="p-2 rounded-lg hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRightIcon className="w-5 h-5 text-text-secondary" />
+            </button>
           </div>
         )}
       </div>
@@ -696,16 +684,16 @@ export const KnowledgeBaseDrive: React.FC = () => {
       {/* File Preview Modal */}
       {showPreview && selectedDoc && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-card border border-border-default rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-slate-800 flex-shrink-0">
+            <div className="flex items-center justify-between p-5 border-b border-border-default flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 {getFileIcon(selectedDoc.file_type)}
                 <div className="min-w-0">
-                  <h2 className="text-lg font-semibold text-slate-100 truncate">
+                  <h2 className="text-lg font-semibold text-text-primary truncate">
                     {selectedDoc.filename}
                   </h2>
-                  <p className="text-sm text-slate-400">
+                  <p className="text-sm text-text-secondary">
                     {selectedDoc.file_type.toUpperCase()} •{" "}
                     {formatFileSize(selectedDoc.size)} •{" "}
                     {selectedDoc.chunks_count} chunks
@@ -715,7 +703,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => handleDownload(selectedDoc)}
-                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                  className="p-2 hover:bg-input rounded-lg transition-colors"
                   title="Download"
                 >
                   <ArrowDownTrayIcon className="w-5 h-5 text-blue-400" />
@@ -723,7 +711,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
                 {isAdmin && (
                   <button
                     onClick={() => handleDelete(selectedDoc.document_id)}
-                    className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                    className="p-2 hover:bg-input rounded-lg transition-colors"
                     title="Delete"
                   >
                     <TrashIcon className="w-5 h-5 text-red-400" />
@@ -731,21 +719,21 @@ export const KnowledgeBaseDrive: React.FC = () => {
                 )}
                 <button
                   onClick={closePreview}
-                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                  className="p-2 hover:bg-input rounded-lg transition-colors"
                 >
-                  <XMarkIcon className="w-5 h-5 text-slate-400" />
+                  <XMarkIcon className="w-5 h-5 text-text-secondary" />
                 </button>
               </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-slate-800 flex-shrink-0">
+            <div className="flex border-b border-border-default flex-shrink-0">
               <button
                 onClick={() => setPreviewTab("preview")}
                 className={`px-6 py-3 text-sm font-medium transition-colors ${
                   previewTab === "preview"
                     ? "text-blue-400 border-b-2 border-blue-400"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-text-secondary hover:text-text-primary"
                 }`}
               >
                 Preview
@@ -755,7 +743,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
                 className={`px-6 py-3 text-sm font-medium transition-colors ${
                   previewTab === "details"
                     ? "text-blue-400 border-b-2 border-blue-400"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-text-secondary hover:text-text-primary"
                 }`}
               >
                 Details
@@ -770,8 +758,8 @@ export const KnowledgeBaseDrive: React.FC = () => {
                     pdfLoading ? (
                       <div className="flex items-center justify-center h-64">
                         <div className="text-center">
-                          <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
-                          <p className="text-slate-400 text-sm">Loading PDF...</p>
+                          <div className="w-10 h-10 border-4 border-border-default rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                          <p className="text-text-secondary text-sm">Loading PDF...</p>
                         </div>
                       </div>
                     ) : pdfBlobUrl ? (
@@ -781,15 +769,15 @@ export const KnowledgeBaseDrive: React.FC = () => {
                         title={`Preview: ${selectedDoc.filename}`}
                       />
                     ) : (
-                      <div className="flex items-center justify-center h-64 text-slate-500">
+                      <div className="flex items-center justify-center h-64 text-text-muted">
                         <p>Failed to load PDF preview</p>
                       </div>
                     )
                   ) : chunksLoading ? (
                     <div className="flex items-center justify-center h-64">
                       <div className="text-center">
-                        <div className="w-10 h-10 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
-                        <p className="text-slate-400 text-sm">Loading content...</p>
+                        <div className="w-10 h-10 border-4 border-border-default rounded-full animate-spin border-t-blue-500 mx-auto mb-3"></div>
+                        <p className="text-text-secondary text-sm">Loading content...</p>
                       </div>
                     </div>
                   ) : chunks.length > 0 ? (
@@ -798,19 +786,19 @@ export const KnowledgeBaseDrive: React.FC = () => {
                         <div key={chunk.chunk_index}>
                           {chunk.page_number != null && (idx === 0 || chunks[idx - 1]?.page_number !== chunk.page_number) && (
                             <div className="flex items-center gap-2 mt-3 mb-2 first:mt-0">
-                              <div className="h-px flex-1 bg-slate-700"></div>
-                              <span className="text-xs text-slate-500 font-medium">Page {chunk.page_number}</span>
-                              <div className="h-px flex-1 bg-slate-700"></div>
+                              <div className="h-px flex-1 bg-hover"></div>
+                              <span className="text-xs text-text-muted font-medium">Page {chunk.page_number}</span>
+                              <div className="h-px flex-1 bg-hover"></div>
                             </div>
                           )}
-                          <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                          <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">
                             {chunk.text}
                           </p>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="flex items-center justify-center h-64 text-slate-500">
+                    <div className="flex items-center justify-center h-64 text-text-muted">
                       <p>No content available for preview</p>
                     </div>
                   )}
@@ -818,47 +806,47 @@ export const KnowledgeBaseDrive: React.FC = () => {
               ) : (
                 <div className="p-5 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-slate-800 rounded-lg p-4">
-                      <p className="text-xs text-slate-500 mb-1">Chunks</p>
-                      <p className="text-2xl font-semibold text-slate-100">
+                    <div className="bg-input rounded-lg p-4">
+                      <p className="text-xs text-text-muted mb-1">Chunks</p>
+                      <p className="text-2xl font-semibold text-text-primary">
                         {selectedDoc.chunks_count}
                       </p>
                     </div>
-                    <div className="bg-slate-800 rounded-lg p-4">
-                      <p className="text-xs text-slate-500 mb-1">Language</p>
-                      <p className="text-2xl font-semibold text-slate-100">
+                    <div className="bg-input rounded-lg p-4">
+                      <p className="text-xs text-text-muted mb-1">Language</p>
+                      <p className="text-2xl font-semibold text-text-primary">
                         {selectedDoc.language || "Auto"}
                       </p>
                     </div>
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-500">Document ID</p>
-                      <p className="text-sm font-mono text-slate-200">
+                      <p className="text-sm font-medium text-text-muted">Document ID</p>
+                      <p className="text-sm font-mono text-text-primary">
                         {selectedDoc.document_id}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-500">File Type</p>
-                      <p className="text-sm text-slate-200 uppercase">
+                      <p className="text-sm font-medium text-text-muted">File Type</p>
+                      <p className="text-sm text-text-primary uppercase">
                         {selectedDoc.file_type}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-500">Size</p>
-                      <p className="text-sm text-slate-200">
+                      <p className="text-sm font-medium text-text-muted">Size</p>
+                      <p className="text-sm text-text-primary">
                         {formatFileSize(selectedDoc.size)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-500">Created</p>
-                      <p className="text-sm text-slate-200">
+                      <p className="text-sm font-medium text-text-muted">Created</p>
+                      <p className="text-sm text-text-primary">
                         {formatDate(selectedDoc.created_at)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-500">Modified</p>
-                      <p className="text-sm text-slate-200">
+                      <p className="text-sm font-medium text-text-muted">Modified</p>
+                      <p className="text-sm text-text-primary">
                         {formatDate(selectedDoc.last_modified)}
                       </p>
                     </div>
@@ -873,8 +861,8 @@ export const KnowledgeBaseDrive: React.FC = () => {
       {/* New Folder Modal */}
       {showNewFolder && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-xl font-semibold text-slate-100 mb-4">
+          <div className="bg-card border border-border-default rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-semibold text-text-primary mb-4">
               New Folder
             </h2>
             <input
@@ -883,13 +871,13 @@ export const KnowledgeBaseDrive: React.FC = () => {
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
-              className="w-full px-4 py-3 border-2 border-slate-700 focus:border-blue-500 rounded-lg outline-none mb-4 bg-slate-800 text-slate-200 placeholder:text-slate-500"
+              className="w-full px-4 py-3 border-2 border-border-default focus:border-blue-500 rounded-lg outline-none mb-4 bg-input text-text-primary placeholder:text-text-muted"
               autoFocus
             />
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowNewFolder(false)}
-                className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition-colors"
+                className="flex-1 px-4 py-3 bg-input hover:bg-hover text-text-secondary rounded-lg font-medium transition-colors"
               >
                 Cancel
               </button>

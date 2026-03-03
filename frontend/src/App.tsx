@@ -23,8 +23,13 @@ import { SystemHealth } from "./components/admin/SystemHealth";
 import { FeedbackList } from "./components/admin/FeedbackList";
 
 function AppContent() {
-  const { loadSettings } = useAppStore();
+  const { loadSettings, theme } = useAppStore();
   const { fetchSessions } = useSessionStore();
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   // Load settings and sessions on mount
   useEffect(() => {
@@ -33,7 +38,7 @@ function AppContent() {
   }, [loadSettings, fetchSessions]);
 
   return (
-    <div className="flex h-screen bg-slate-950">
+    <div className="flex h-screen bg-page">
       {/* Left Sidebar Navigation */}
       <Sidebar />
 
@@ -134,6 +139,12 @@ function DefaultRedirect() {
 
 function App() {
   const { loadFromStorage, isLoading } = useAuthStore();
+  const theme = useAppStore((s) => s.theme);
+
+  // Apply theme early (before auth loads)
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     loadFromStorage();
@@ -141,8 +152,8 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-950">
-        <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-screen bg-page">
+        <div className="w-12 h-12 border-4 border-border-default border-t-blue-500 rounded-full animate-spin" />
       </div>
     );
   }

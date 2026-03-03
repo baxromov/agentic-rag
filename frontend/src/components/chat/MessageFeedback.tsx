@@ -53,7 +53,7 @@ export const MessageFeedback: React.FC<MessageFeedbackProps> = ({
           className={`p-1 rounded transition-colors ${
             rating === "up"
               ? "text-green-500"
-              : "text-slate-600 hover:text-slate-400"
+              : "text-text-muted hover:text-text-secondary"
           }`}
           title="Helpful"
         >
@@ -64,7 +64,7 @@ export const MessageFeedback: React.FC<MessageFeedbackProps> = ({
           className={`p-1 rounded transition-colors ${
             rating === "down"
               ? "text-red-500"
-              : "text-slate-600 hover:text-slate-400"
+              : "text-text-muted hover:text-text-secondary"
           }`}
           title="Not helpful"
         >
@@ -78,13 +78,13 @@ export const MessageFeedback: React.FC<MessageFeedbackProps> = ({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="What was wrong with this response?"
-            className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-blue-500"
+            className="flex-1 bg-input border border-border-default rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted resize-none focus:outline-none focus:border-blue-500"
             rows={2}
           />
           <button
             onClick={handleSubmitNote}
             disabled={!note.trim()}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm rounded-lg transition-colors"
+            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-hover disabled:text-text-muted text-white text-sm rounded-lg transition-colors"
           >
             Send
           </button>

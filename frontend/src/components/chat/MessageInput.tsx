@@ -34,12 +34,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   return (
-    <div className="px-4 pb-4 pt-2 bg-slate-950">
+    <div className="px-4 pb-4 pt-2 bg-page">
       <form
         onSubmit={handleSubmit}
         className="relative max-w-4xl mx-auto"
       >
-        <div className="relative flex items-end bg-slate-800/80 border border-slate-700/60 rounded-2xl shadow-lg shadow-black/20 focus-within:border-blue-500/50 focus-within:shadow-blue-500/5 transition-all">
+        <div className="relative flex items-end bg-input/80 border border-border-default/60 rounded-2xl shadow-lg shadow-black/20 focus-within:border-blue-500/50 focus-within:shadow-blue-500/5 transition-all">
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -56,7 +56,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               target.style.height = "auto";
               target.style.height = Math.min(target.scrollHeight, 160) + "px";
             }}
-            className="flex-1 px-5 py-3.5 bg-transparent outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 placeholder:text-slate-500 text-[15px] leading-relaxed min-h-[48px] max-h-[160px]"
+            className="flex-1 px-5 py-3.5 bg-transparent outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed text-text-primary placeholder:text-text-muted text-[15px] leading-relaxed min-h-[48px] max-h-[160px]"
           />
 
           <div className="flex items-center gap-2 px-3 pb-2.5">
@@ -82,7 +82,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           </div>
         </div>
 
-        <p className="text-center text-xs text-slate-600 mt-2">
+        <p className="text-center text-xs text-text-muted mt-2">
           Shift+Enter for new line
         </p>
       </form>

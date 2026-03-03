@@ -17,7 +17,9 @@ async def lifespan(app: FastAPI):
 
     from src.config.settings import get_settings
     from src.services.auth import hash_password
+    from src.services.graph_runner import close_graph_runner, init_graph_runner
     from src.services.mongodb import get_mongodb
+    from src.services.session_store import ensure_indexes
 
     settings = get_settings()
     try:
@@ -39,7 +41,33 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Warning: Could not seed admin user: {e}")
 
+    # Seed default departments
+    try:
+        existing_depts = await db.departments.count_documents({})
+        if existing_depts == 0:
+            default_departments = ["Staff", "Recruiting", "L&D", "C&B"]
+            await db.departments.insert_many([{"name": d} for d in default_departments])
+            print(f"Default departments created: {default_departments}")
+    except Exception as e:
+        print(f"Warning: Could not seed departments: {e}")
+
+    # Initialize graph runner with PostgreSQL persistence
+    try:
+        await init_graph_runner()
+        print("Graph runner initialized with PostgreSQL persistence")
+    except Exception as e:
+        print(f"Warning: Could not initialize graph runner: {e}")
+
+    # Ensure MongoDB indexes for session store
+    try:
+        await ensure_indexes()
+    except Exception as e:
+        print(f"Warning: Could not create session indexes: {e}")
+
     yield
+
+    # Cleanup
+    await close_graph_runner()
 
 
 def create_app() -> FastAPI:

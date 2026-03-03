@@ -16,6 +16,7 @@ def _user_response(user: dict) -> UserResponse:
         username=user["username"],
         role=user["role"],
         full_name=user.get("full_name", ""),
+        department=user.get("department", ""),
         is_active=user.get("is_active", True),
         created_at=user.get("created_at", datetime.now(timezone.utc)),
         last_login=user.get("last_login"),

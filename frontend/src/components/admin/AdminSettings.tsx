@@ -87,22 +87,22 @@ export const AdminSettings: React.FC = () => {
 
   if (loading || !settings) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-950">
-        <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-full bg-page">
+        <div className="w-12 h-12 border-4 border-border-default border-t-blue-500 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-slate-950">
+    <div className="h-full overflow-auto bg-page">
       <div className="p-8 max-w-4xl">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-text-primary flex items-center gap-3">
               <WrenchScrewdriverIcon className="w-8 h-8 text-blue-400" />
               System Configuration
             </h1>
-            <p className="text-slate-400 mt-1">
+            <p className="text-text-secondary mt-1">
               Manage application settings and integrations
             </p>
           </div>
@@ -131,8 +131,8 @@ export const AdminSettings: React.FC = () => {
 
         <div className="space-y-6">
           {/* Langfuse Section */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
+            <h2 className="text-lg font-semibold text-text-primary mb-4">
               Langfuse (Observability)
             </h2>
             <div className="space-y-4">
@@ -146,25 +146,25 @@ export const AdminSettings: React.FC = () => {
                     }
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  <div className="w-11 h-6 bg-hover rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
-                <span className="text-sm text-slate-300">Enable Langfuse</span>
+                <span className="text-sm text-text-secondary">Enable Langfuse</span>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Host
                 </label>
                 <input
                   type="text"
                   value={settings.langfuse.host}
                   onChange={(e) => updateLangfuse("host", e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                  className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Public Key
                 </label>
                 <input
@@ -174,12 +174,12 @@ export const AdminSettings: React.FC = () => {
                     updateLangfuse("public_key", e.target.value)
                   }
                   placeholder="pk-lf-..."
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                  className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Secret Key
                 </label>
                 <input
@@ -189,26 +189,26 @@ export const AdminSettings: React.FC = () => {
                     updateLangfuse("secret_key", e.target.value)
                   }
                   placeholder="sk-lf-..."
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                  className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                 />
               </div>
             </div>
           </section>
 
           {/* LLM Section */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
+            <h2 className="text-lg font-semibold text-text-primary mb-4">
               LLM Configuration
             </h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">
+                <label className="block text-sm font-medium text-text-secondary mb-1">
                   Provider
                 </label>
                 <select
                   value={settings.llm.provider}
                   onChange={(e) => updateLLM("provider", e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                  className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                 >
                   <option value="ollama">Ollama</option>
                   <option value="claude">Claude</option>
@@ -218,7 +218,7 @@ export const AdminSettings: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">
+                  <label className="block text-sm font-medium text-text-secondary mb-1">
                     Claude Model
                   </label>
                   <input
@@ -227,11 +227,11 @@ export const AdminSettings: React.FC = () => {
                     onChange={(e) =>
                       updateLLM("claude_model", e.target.value)
                     }
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                    className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">
+                  <label className="block text-sm font-medium text-text-secondary mb-1">
                     OpenAI Model
                   </label>
                   <input
@@ -240,11 +240,11 @@ export const AdminSettings: React.FC = () => {
                     onChange={(e) =>
                       updateLLM("openai_model", e.target.value)
                     }
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                    className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">
+                  <label className="block text-sm font-medium text-text-secondary mb-1">
                     Ollama Model
                   </label>
                   <input
@@ -253,7 +253,7 @@ export const AdminSettings: React.FC = () => {
                     onChange={(e) =>
                       updateLLM("ollama_model", e.target.value)
                     }
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                    className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                   />
                 </div>
               </div>
@@ -261,8 +261,8 @@ export const AdminSettings: React.FC = () => {
           </section>
 
           {/* RAG Section */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
+            <h2 className="text-lg font-semibold text-text-primary mb-4">
               RAG Parameters
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -294,7 +294,7 @@ export const AdminSettings: React.FC = () => {
                 },
               ].map((param) => (
                 <div key={param.key}>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">
+                  <label className="block text-sm font-medium text-text-secondary mb-1">
                     {param.label}
                   </label>
                   <input
@@ -303,7 +303,7 @@ export const AdminSettings: React.FC = () => {
                     onChange={(e) =>
                       updateRAG(param.key, parseInt(e.target.value) || 0)
                     }
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+                    className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
                   />
                 </div>
               ))}

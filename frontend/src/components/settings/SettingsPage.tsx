@@ -84,22 +84,22 @@ export const SettingsPage: React.FC = () => {
 
   if (loading || !data) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-950">
-        <div className="w-12 h-12 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-full bg-page">
+        <div className="w-12 h-12 border-4 border-border-default border-t-blue-500 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-slate-950">
+    <div className="h-full overflow-auto bg-page">
       <div className="p-8 max-w-3xl">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-text-primary flex items-center gap-3">
               <Cog6ToothIcon className="w-8 h-8 text-blue-400" />
               Settings
             </h1>
-            <p className="text-slate-400 mt-1">
+            <p className="text-text-secondary mt-1">
               Personalization settings apply to all users
             </p>
           </div>
@@ -114,20 +114,20 @@ export const SettingsPage: React.FC = () => {
 
         <div className="space-y-6">
           {/* Language Preference */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
             <div className="flex items-center gap-3 mb-5">
               <div className="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center">
                 <GlobeAltIcon className="w-5 h-5 text-blue-400" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-100">Language Preference</h2>
-                <p className="text-sm text-slate-400">Default response language for all users</p>
+                <h2 className="text-lg font-semibold text-text-primary">Language Preference</h2>
+                <p className="text-sm text-text-secondary">Default response language for all users</p>
               </div>
             </div>
             <select
               value={data.language_preference}
               onChange={(e) => update("language_preference", e.target.value)}
-              className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 focus:border-blue-500 rounded-lg outline-none text-slate-200"
+              className="w-full px-4 py-2.5 bg-input border border-border-default focus:border-blue-500 rounded-lg outline-none text-text-primary"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.value} value={l.value}>{l.label}</option>
@@ -136,14 +136,14 @@ export const SettingsPage: React.FC = () => {
           </section>
 
           {/* Expertise Level */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
             <div className="flex items-center gap-3 mb-5">
               <div className="w-10 h-10 bg-purple-600/20 rounded-xl flex items-center justify-center">
                 <AcademicCapIcon className="w-5 h-5 text-purple-400" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-100">Expertise Level</h2>
-                <p className="text-sm text-slate-400">How technical AI responses should be</p>
+                <h2 className="text-lg font-semibold text-text-primary">Expertise Level</h2>
+                <p className="text-sm text-text-secondary">How technical AI responses should be</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -154,12 +154,12 @@ export const SettingsPage: React.FC = () => {
                   className={`text-left px-4 py-3 rounded-xl border transition-all ${
                     data.expertise_level === level.value
                       ? "bg-purple-600/15 border-purple-500 text-purple-100"
-                      : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                      : "bg-input border-border-default text-text-secondary hover:border-border-default"
                   }`}
                 >
                   <p className="font-medium text-sm">{level.label}</p>
                   <p className={`text-xs mt-0.5 ${
-                    data.expertise_level === level.value ? "text-purple-300" : "text-slate-500"
+                    data.expertise_level === level.value ? "text-purple-300" : "text-text-muted"
                   }`}>{level.description}</p>
                 </button>
               ))}
@@ -167,14 +167,14 @@ export const SettingsPage: React.FC = () => {
           </section>
 
           {/* Response Style */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
             <div className="flex items-center gap-3 mb-5">
               <div className="w-10 h-10 bg-emerald-600/20 rounded-xl flex items-center justify-center">
                 <ChatBubbleBottomCenterTextIcon className="w-5 h-5 text-emerald-400" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-100">Response Style</h2>
-                <p className="text-sm text-slate-400">Level of detail in AI responses</p>
+                <h2 className="text-lg font-semibold text-text-primary">Response Style</h2>
+                <p className="text-sm text-text-secondary">Level of detail in AI responses</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -185,12 +185,12 @@ export const SettingsPage: React.FC = () => {
                   className={`px-4 py-3 rounded-xl border text-center transition-all ${
                     data.response_style === style.value
                       ? "bg-emerald-600/15 border-emerald-500 text-emerald-100"
-                      : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                      : "bg-input border-border-default text-text-secondary hover:border-border-default"
                   }`}
                 >
                   <p className="font-medium text-sm">{style.label}</p>
                   <p className={`text-xs mt-0.5 ${
-                    data.response_style === style.value ? "text-emerald-300" : "text-slate-500"
+                    data.response_style === style.value ? "text-emerald-300" : "text-text-muted"
                   }`}>{style.description}</p>
                 </button>
               ))}
@@ -198,15 +198,15 @@ export const SettingsPage: React.FC = () => {
           </section>
 
           {/* Citations Toggle */}
-          <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+          <section className="bg-card rounded-2xl border border-border-default p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-amber-600/20 rounded-xl flex items-center justify-center">
                   <DocumentCheckIcon className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-100">Source Citations</h2>
-                  <p className="text-sm text-slate-400">Show source documents with answers</p>
+                  <h2 className="text-lg font-semibold text-text-primary">Source Citations</h2>
+                  <p className="text-sm text-text-secondary">Show source documents with answers</p>
                 </div>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
@@ -216,7 +216,7 @@ export const SettingsPage: React.FC = () => {
                   onChange={(e) => update("enable_citations", e.target.checked)}
                   className="sr-only peer"
                 />
-                <div className="w-11 h-6 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+                <div className="w-11 h-6 bg-hover rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
               </label>
             </div>
           </section>

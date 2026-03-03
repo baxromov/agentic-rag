@@ -28,7 +28,8 @@ services:
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/documents
+      mc mb --ignore-existing local/documents &&
+      mc mb --ignore-existing local/langfuse
       "
     networks:
       - rag-network
@@ -156,9 +157,9 @@ services:
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
-      # Disable Langfuse SDK auto-init and LangGraph OTLP exporter when Langfuse is off
-      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_ENABLED:-false}
-      OTEL_TRACES_EXPORTER: "none"
+      # NOTE: Do NOT set OTEL_TRACES_EXPORTER=none here — it permanently
+      # disables the OTEL tracer provider at startup, blocking runtime
+      # Langfuse configuration from the admin panel.
       MONGODB_URL: mongodb://mongodb:27017
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-super-secret-jwt-key-change-in-production}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
@@ -176,8 +177,6 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      langgraph-server:
-        condition: service_started
     networks:
       - rag-network
     extra_hosts:
@@ -218,8 +217,7 @@ services:
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
-      # Disable Langfuse SDK auto-init and LangGraph OTLP exporter when Langfuse is off
-      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_ENABLED:-false}
+      # Disable LangGraph OTLP exporter (not needed with Langfuse SDK v2)
       OTEL_TRACES_EXPORTER: "none"
     depends_on:
       minio:
@@ -256,21 +254,87 @@ services:
     networks:
       - rag-network
 
-  # -- Langfuse (LLM Observability) --
-  langfuse:
-    image: langfuse/langfuse:2
-    ports:
-      - "3000:3000"
+  # -- Langfuse v3 (LLM Observability) --
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server
+    restart: always
+    user: "101:101"
     environment:
-      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
-      NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: langfuse-secret-change-me
-      SALT: langfuse-salt-change-me
-      HOSTNAME: "0.0.0.0"
-      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+    networks:
+      - rag-network
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: always
     depends_on:
       langfuse-postgres:
         condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: &langfuse-env
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      SALT: langfuse-salt-change-me
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      # Reuse existing MinIO for blob storage
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+      # Reuse existing Redis (no auth)
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ""
+      HOSTNAME: "0.0.0.0"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    networks:
+      - rag-network
+
+  langfuse:
+    image: langfuse/langfuse:3
+    restart: always
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: langfuse-secret-change-me
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://0.0.0.0:3000/api/public/health || exit 1"]
       interval: 15s
@@ -304,6 +368,8 @@ volumes:
   postgres_data:
   mongodb_data:
   langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
   model_cache:
   frontend_node_modules:
 

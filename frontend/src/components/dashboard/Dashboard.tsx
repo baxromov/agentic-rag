@@ -82,21 +82,21 @@ export const Dashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-950">
+      <div className="flex items-center justify-center h-full bg-page">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-slate-700 rounded-full animate-spin border-t-blue-500 mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading dashboard...</p>
+          <div className="w-16 h-16 border-4 border-border-default rounded-full animate-spin border-t-blue-500 mx-auto mb-4"></div>
+          <p className="text-text-secondary">Loading dashboard...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-slate-950">
+    <div className="h-full overflow-auto bg-page">
       <div className="p-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-100 mb-2">Dashboard</h1>
-          <p className="text-slate-400">
+          <h1 className="text-3xl font-bold text-text-primary mb-2">Dashboard</h1>
+          <p className="text-text-secondary">
             Welcome back! Here's an overview of the HR knowledge base.
           </p>
         </div>
@@ -108,7 +108,7 @@ export const Dashboard: React.FC = () => {
             return (
               <div
                 key={idx}
-                className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden hover:border-slate-700 transition-all"
+                className="bg-card rounded-2xl border border-border-default overflow-hidden hover:border-border-default transition-all"
               >
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-4">
@@ -123,10 +123,10 @@ export const Dashboard: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <p className="text-slate-400 text-sm font-medium mb-1">
+                    <p className="text-text-secondary text-sm font-medium mb-1">
                       {card.title}
                     </p>
-                    <p className="text-3xl font-bold text-slate-100">
+                    <p className="text-3xl font-bold text-text-primary">
                       {card.value}
                     </p>
                   </div>
@@ -138,8 +138,8 @@ export const Dashboard: React.FC = () => {
 
         {/* Quick Actions + Recent Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-            <h2 className="text-xl font-bold text-slate-100 mb-4">
+          <div className="bg-card rounded-2xl border border-border-default p-6">
+            <h2 className="text-xl font-bold text-text-primary mb-4">
               Quick Actions
             </h2>
             <div className="space-y-3">
@@ -158,8 +158,8 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-            <h2 className="text-xl font-bold text-slate-100 mb-4">
+          <div className="bg-card rounded-2xl border border-border-default p-6">
+            <h2 className="text-xl font-bold text-text-primary mb-4">
               Recent Activity
             </h2>
             <div className="space-y-4">
@@ -187,16 +187,16 @@ export const Dashboard: React.FC = () => {
               ].map((activity, idx) => (
                 <div
                   key={idx}
-                  className="flex items-start gap-3 pb-3 border-b border-slate-800 last:border-0"
+                  className="flex items-start gap-3 pb-3 border-b border-border-default last:border-0"
                 >
                   <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
                   <div className="flex-1">
-                    <p className="text-slate-200 font-medium text-sm">
+                    <p className="text-text-primary font-medium text-sm">
                       {activity.action}
                     </p>
-                    <p className="text-slate-500 text-xs">{activity.file}</p>
+                    <p className="text-text-muted text-xs">{activity.file}</p>
                   </div>
-                  <div className="flex items-center gap-1 text-slate-500 text-xs">
+                  <div className="flex items-center gap-1 text-text-muted text-xs">
                     <ClockIcon className="w-3 h-3" />
                     {activity.time}
                   </div>
@@ -207,8 +207,8 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* System Status */}
-        <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-          <h2 className="text-xl font-bold text-slate-100 mb-4">
+        <div className="bg-card rounded-2xl border border-border-default p-6">
+          <h2 className="text-xl font-bold text-text-primary mb-4">
             System Status
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -220,10 +220,10 @@ export const Dashboard: React.FC = () => {
               <div key={idx} className="flex items-center gap-3">
                 <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                 <div>
-                  <p className="text-sm font-medium text-slate-200">
+                  <p className="text-sm font-medium text-text-primary">
                     {item.name}
                   </p>
-                  <p className="text-xs text-slate-500">{item.status}</p>
+                  <p className="text-xs text-text-muted">{item.status}</p>
                 </div>
               </div>
             ))}

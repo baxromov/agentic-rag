@@ -34,7 +34,7 @@ export const ExpertiseSelector: React.FC = () => {
 
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+      <label className="block text-sm font-medium text-text-secondary mb-2">
         Expertise Level
       </label>
       <RadioGroup
@@ -49,8 +49,8 @@ export const ExpertiseSelector: React.FC = () => {
               className={({ checked }) =>
                 `relative flex cursor-pointer rounded-lg px-4 py-3 border ${
                   checked
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500'
-                    : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    ? 'bg-blue-900/20 border-blue-500'
+                    : 'bg-input border-border-default hover:bg-hover'
                 } focus:outline-none transition-colors`
               }
             >
@@ -62,8 +62,8 @@ export const ExpertiseSelector: React.FC = () => {
                         as="p"
                         className={`font-medium ${
                           checked
-                            ? 'text-blue-900 dark:text-blue-100'
-                            : 'text-slate-900 dark:text-slate-100'
+                            ? 'text-blue-200'
+                            : 'text-text-primary'
                         }`}
                       >
                         {level.label}
@@ -72,8 +72,8 @@ export const ExpertiseSelector: React.FC = () => {
                         as="span"
                         className={`inline ${
                           checked
-                            ? 'text-blue-700 dark:text-blue-300'
-                            : 'text-slate-500 dark:text-slate-400'
+                            ? 'text-blue-300'
+                            : 'text-text-muted'
                         }`}
                       >
                         {level.description}
@@ -81,7 +81,7 @@ export const ExpertiseSelector: React.FC = () => {
                     </div>
                   </div>
                   {checked && (
-                    <div className="shrink-0 text-blue-600 dark:text-blue-400">
+                    <div className="shrink-0 text-blue-400">
                       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <circle cx="10" cy="10" r="4" />
                       </svg>

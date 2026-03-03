@@ -11,10 +11,10 @@ export const CitationToggle: React.FC = () => {
   return (
     <div className="flex items-center justify-between">
       <div>
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+        <label className="block text-sm font-medium text-text-secondary">
           Show Source Citations
         </label>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+        <p className="text-xs text-text-muted mt-1">
           Display source documents with answers
         </p>
       </div>
@@ -24,7 +24,7 @@ export const CitationToggle: React.FC = () => {
         className={`${
           settings.enable_citations
             ? 'bg-blue-600'
-            : 'bg-slate-300 dark:bg-slate-600'
+            : 'bg-hover'
         } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
       >
         <span className="sr-only">Enable citations</span>

@@ -11,7 +11,7 @@ export const StreamingIndicator: React.FC = () => {
         </div>
       </div>
       <div className="flex-1">
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 shadow-sm">
+        <div className="bg-input border border-border-default rounded-2xl px-5 py-4 shadow-sm">
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
               <div
@@ -27,7 +27,7 @@ export const StreamingIndicator: React.FC = () => {
                 style={{ animationDelay: "300ms" }}
               ></div>
             </div>
-            <span className="text-sm text-slate-400">AI is thinking...</span>
+            <span className="text-sm text-text-secondary">AI is thinking...</span>
           </div>
         </div>
       </div>
