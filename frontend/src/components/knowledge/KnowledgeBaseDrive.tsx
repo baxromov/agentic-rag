@@ -127,7 +127,14 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const [newFolderName, setNewFolderName] = useState("");
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
+  const folderInputNodeRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useCallback((node: HTMLInputElement | null) => {
+    folderInputNodeRef.current = node;
+    if (node) {
+      node.setAttribute("webkitdirectory", "");
+      node.setAttribute("directory", "");
+    }
+  }, []);
   const uploadMenuRef = useRef<HTMLDivElement>(null);
   const { addFiles, tasks, isProcessing } = useUploadStore();
   const { user } = useAuthStore();
@@ -454,7 +461,7 @@ export const KnowledgeBaseDrive: React.FC = () => {
                       </div>
                     </button>
                     <button
-                      onClick={() => folderInputRef.current?.click()}
+                      onClick={() => folderInputNodeRef.current?.click()}
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-hover text-text-primary transition-colors text-left border-t border-border-default"
                     >
                       <FolderArrowDownIcon className="w-5 h-5 text-purple-400" />
@@ -480,10 +487,6 @@ export const KnowledgeBaseDrive: React.FC = () => {
                   type="file"
                   onChange={handleFilesSelected}
                   className="hidden"
-                  {...({
-                    webkitdirectory: "",
-                    directory: "",
-                  } as React.InputHTMLAttributes<HTMLInputElement>)}
                 />
               </div>
             )}
