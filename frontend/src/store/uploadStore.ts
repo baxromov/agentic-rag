@@ -109,7 +109,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       const ext = "." + file.name.split(".").pop()?.toLowerCase();
       if (ACCEPTED_EXTENSIONS.includes(ext)) {
         accepted.push({
-          id: crypto.randomUUID(),
+          id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
           file,
           filename: file.name,
           size: file.size,

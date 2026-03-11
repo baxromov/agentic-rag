@@ -1,8 +1,8 @@
 """MongoDB-based session metadata store.
 
 Stores session metadata (title, user_id, message_count) in MongoDB
-for persistence. Message content is stored in PostgreSQL via the
-LangGraph checkpointer (thread state).
+for persistence. Message content and graph state are also stored in
+MongoDB via the LangGraph AsyncMongoDBSaver checkpointer (langgraph db).
 """
 
 import uuid

@@ -141,6 +141,11 @@ def make_input_safety_node(llm: BaseChatModel):
     safety_chain = _INPUT_SAFETY_PROMPT | llm.with_structured_output(InputSafetyResult)
 
     async def input_safety(state: AgentState, config: RunnableConfig) -> dict:
+        # Check if input safety is disabled via runtime_context
+        ctx = state.get("runtime_context") or {}
+        if not ctx.get("input_safety_enabled", True):
+            return {"guardrail_blocked": False}
+
         query = state["query"]
 
         try:
@@ -185,6 +190,11 @@ def make_output_safety_node(llm: BaseChatModel):
     }
 
     async def output_safety(state: AgentState, config: RunnableConfig) -> dict:
+        # Check if output safety is disabled via runtime_context
+        ctx = state.get("runtime_context") or {}
+        if not ctx.get("output_safety_enabled", True):
+            return {}
+
         generation = state.get("generation", "")
         query = state.get("original_query") or state.get("query", "")
 

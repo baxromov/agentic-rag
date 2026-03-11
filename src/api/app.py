@@ -51,10 +51,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Warning: Could not seed departments: {e}")
 
-    # Initialize graph runner with PostgreSQL persistence
+    # Initialize graph runner with MongoDB persistence
     try:
         await init_graph_runner()
-        print("Graph runner initialized with PostgreSQL persistence")
+        print("Graph runner initialized with MongoDB persistence")
     except Exception as e:
         print(f"Warning: Could not initialize graph runner: {e}")
 

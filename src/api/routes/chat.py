@@ -83,7 +83,24 @@ async def stream_chat(request: StreamChatRequest, user: dict = Depends(get_curre
             request_start = time.time()
             query = request.query
             filters = request.filters
-            runtime_context = request.context
+            runtime_context = request.context or {}
+
+            # Inject guardrail settings from MongoDB into runtime_context
+            try:
+                from src.services.mongodb import get_mongodb
+                db = await get_mongodb()
+                app_cfg = await db.app_settings.find_one({"_id": "app_config"}) or {}
+                runtime_context.setdefault(
+                    "input_safety_enabled", app_cfg.get("input_safety_enabled", True)
+                )
+                runtime_context.setdefault(
+                    "output_safety_enabled", app_cfg.get("output_safety_enabled", True)
+                )
+                runtime_context.setdefault(
+                    "intent_classification_enabled", app_cfg.get("intent_classification_enabled", True)
+                )
+            except Exception:
+                pass
 
             logger.info(
                 "stream_request_received",

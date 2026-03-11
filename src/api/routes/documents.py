@@ -11,12 +11,17 @@ from src.api.auth_dependencies import get_current_user, require_admin
 from src.api.dependencies import get_ingestion_pipeline, get_minio_service, get_qdrant_service
 from src.ingestion.pipeline import IngestionPipeline
 from src.models.schemas import (
+    BulkDeleteRequest,
+    BulkDeleteResponse,
+    BulkResyncRequest,
+    BulkResyncResponse,
     DocumentDeleteResponse,
     DocumentListResponse,
     DocumentMetadata,
     DocumentUploadResponse,
     FolderNode,
     KnowledgeBaseResponse,
+    ResyncResult,
 )
 from src.services.minio_client import MinioService
 from src.services.qdrant_client import QdrantService
@@ -77,6 +82,62 @@ async def delete_document(
         return DocumentDeleteResponse(document_id=document_id, deleted=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_documents(
+    request: BulkDeleteRequest,
+    pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
+    minio: MinioService = Depends(get_minio_service),
+    _user: dict = Depends(require_admin),
+):
+    """Delete multiple documents by their IDs (admin only)."""
+    deleted: list[str] = []
+    failed: list[str] = []
+
+    for doc_id in request.document_ids:
+        try:
+            await pipeline.delete_document(doc_id)
+            minio_objects = minio.list_objects(prefix=f"{doc_id}/")
+            for obj in minio_objects:
+                minio.delete(obj["key"])
+            deleted.append(doc_id)
+        except Exception:
+            failed.append(doc_id)
+
+    return BulkDeleteResponse(deleted=deleted, failed=failed)
+
+
+@router.post("/resync", response_model=BulkResyncResponse)
+async def resync_documents(
+    request: BulkResyncRequest,
+    pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
+    _user: dict = Depends(require_admin),
+):
+    """Re-chunk and re-sync selected documents with the vector database (admin only)."""
+    results: list[ResyncResult] = []
+
+    for doc_id in request.document_ids:
+        try:
+            result = await pipeline.resync_document(doc_id)
+            results.append(
+                ResyncResult(
+                    document_id=doc_id,
+                    chunks_count=result["chunks_count"],
+                    status="success",
+                )
+            )
+        except Exception as e:
+            results.append(
+                ResyncResult(
+                    document_id=doc_id,
+                    chunks_count=0,
+                    status="failed",
+                    error=str(e),
+                )
+            )
+
+    return BulkResyncResponse(results=results)
 
 
 @router.get("/{document_id}/download")

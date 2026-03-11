@@ -36,7 +36,16 @@ def parse_document(file_bytes: bytes, filename: str) -> ParsedDocument:
         tmp.write(file_bytes)
         tmp.flush()
 
-        raw_elements = partition(filename=tmp.name, languages=["eng", "rus"])
+        # Use ocr_only for PDFs to force Tesseract OCR (scanned docs get garbled
+        # text with the default "auto" strategy which uses pdfminer text extraction).
+        # For other file types, use auto strategy.
+        strategy = "ocr_only" if ext == ".pdf" else "auto"
+
+        raw_elements = partition(
+            filename=tmp.name,
+            strategy=strategy,
+            languages=["rus", "uzb_cyrl", "uzb", "eng"],
+        )
 
     elements = []
     current_section_header = ""

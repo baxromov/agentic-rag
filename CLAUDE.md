@@ -15,14 +15,14 @@ Agentic RAG (Retrieval-Augmented Generation) framework for Ipoteka Bank. Documen
 - **Embeddings**: Ollama nomic-embed-text (768-dim), batched via httpx
 - **Reranker**: jinaai/jina-reranker-v2-base-multilingual via model-server (FastEmbed)
 - **LLM**: Multi-provider (Claude, OpenAI, Ollama) — configured via `LLM_PROVIDER` in `.env`
-- **Auth DB**: MongoDB (users, feedback)
-- **State**: LangGraph with AsyncPostgresSaver (direct invocation, no langgraph-server needed) + Redis pub/sub
-- **Observability**: Langfuse (optional, via `LANGFUSE_ENABLED`)
+- **Database**: MongoDB (users, feedback, sessions, graph state via AsyncMongoDBSaver)
+- **State**: LangGraph with AsyncMongoDBSaver (direct invocation, no langgraph-server needed) + Redis pub/sub
+- **Observability**: Langfuse (optional, currently disabled in docker-compose)
 
 ## Running
 
 ```bash
-docker compose up              # all services (minio, qdrant, redis, mongodb, postgres, model-server, fastapi, langgraph-server, langfuse, frontend)
+docker compose up              # all services (minio, qdrant, redis, mongodb, model-server, fastapi, langgraph-server, frontend)
 docker compose up -d           # detached
 docker compose build fastapi langgraph-server  # rebuild after Python code changes
 docker compose up -d fastapi langgraph-server  # restart after rebuild
@@ -169,7 +169,7 @@ Uses `@import "tailwindcss"` in index.css (not v3 `@tailwind` directives). CSS v
 Qdrant uses RRF (Reciprocal Rank Fusion, k=60) to combine dense + full-text results. If text index is missing on collection, search silently falls back to dense only.
 
 ### Chat Sessions
-Session metadata (title, user_id, message_count) stored in **MongoDB** (`chat_sessions` collection). Message history persisted in **PostgreSQL** via `AsyncPostgresSaver` checkpointer (direct graph invocation, no langgraph-server dependency). Frontend `sessionStore.ts` (Zustand) tracks sessions list and `activeSessionId` (persisted to localStorage). Sidebar shows session list only on `/chat` route.
+Session metadata (title, user_id, message_count) stored in **MongoDB** (`chat_sessions` collection). Message history and graph state persisted in **MongoDB** via `AsyncMongoDBSaver` checkpointer (direct graph invocation, `langgraph` database, no langgraph-server dependency). Frontend `sessionStore.ts` (Zustand) tracks sessions list and `activeSessionId` (persisted to localStorage). Sidebar shows session list only on `/chat` route.
 
 ### Human-in-the-Loop (HITL)
 When `grade_documents` detects all documents score < 0.25 after at least 1 retry, it sets `needs_clarification=True` with a multilingual question. The `human_feedback` node uses `langgraph.types.interrupt()` to pause the graph. Frontend shows `ClarificationPrompt` component. User response resumes via `POST /chat/resume` with `Command(resume=response)`.
@@ -192,7 +192,7 @@ Key variables (see `src/config/settings.py` for all defaults):
 - `MONGODB_URL` (default: `mongodb://mongodb:27017`)
 - `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES=30`, `REFRESH_TOKEN_EXPIRE_DAYS=7`
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — seeded admin user on startup
-- `LANGFUSE_ENABLED`, `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`
+- `LANGFUSE_ENABLED`, `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` (Langfuse services disabled in docker-compose by default)
 
 ## Common Tasks
 

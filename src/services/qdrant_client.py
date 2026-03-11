@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 
 from qdrant_client import AsyncQdrantClient, models
@@ -7,7 +6,7 @@ from src.config.settings import Settings
 
 
 class QdrantService:
-    """Hybrid vector DB: dense vectors + full-text index with RRF fusion."""
+    """Hybrid vector DB: dense + sparse (BM25) vectors with Qdrant-native RRF fusion."""
 
     def __init__(self, settings: Settings) -> None:
         """Initialize service configuration. Use create() classmethod for async initialization."""
@@ -34,10 +33,17 @@ class QdrantService:
 
         await self._client.create_collection(
             collection_name=self._collection,
-            vectors_config=models.VectorParams(
-                size=self._dim,
-                distance=models.Distance.COSINE,
-            ),
+            vectors_config={
+                "dense": models.VectorParams(
+                    size=self._dim,
+                    distance=models.Distance.COSINE,
+                ),
+            },
+            sparse_vectors_config={
+                "sparse": models.SparseVectorParams(
+                    modifier=models.Modifier.IDF,
+                ),
+            },
         )
 
         # Full-text index on "text" field with multilingual tokenizer
@@ -126,12 +132,24 @@ class QdrantService:
         except Exception:
             pass
 
-    async def upsert(self, vectors: list[list[float]], payloads: list[dict]) -> list[str]:
+    async def upsert(
+        self,
+        vectors: list[list[float]],
+        payloads: list[dict],
+        sparse_vectors: list | None = None,
+    ) -> list[str]:
         ids = [str(uuid.uuid4()) for _ in vectors]
-        points = [
-            models.PointStruct(id=ids[i], vector=vectors[i], payload=payloads[i])
-            for i in range(len(vectors))
-        ]
+        points = []
+        for i in range(len(vectors)):
+            vector_data: dict = {"dense": vectors[i]}
+            if sparse_vectors and i < len(sparse_vectors):
+                sv = sparse_vectors[i]
+                vector_data["sparse"] = models.SparseVector(
+                    indices=sv.indices, values=sv.values,
+                )
+            points.append(
+                models.PointStruct(id=ids[i], vector=vector_data, payload=payloads[i])
+            )
         await self._client.upsert(collection_name=self._collection, points=points)
         return ids
 
@@ -141,76 +159,56 @@ class QdrantService:
         query_text: str,
         top_k: int | None = None,
         filters: dict | None = None,
+        sparse_vector: object | None = None,
     ) -> list[dict]:
-        """Hybrid search: dense + full-text in parallel, fused with RRF."""
+        """Hybrid search: dense + sparse with Qdrant-native RRF fusion.
+
+        Uses Qdrant's built-in FusionQuery with Prefetch for proper ranked fusion.
+        If sparse_vector is provided, uses BM25-based sparse search.
+        Otherwise falls back to dense-only search.
+        """
         top_k = top_k or self._top_k
         query_filter = self._build_filter(filters) if filters else None
 
-        # Build full-text filter
-        text_filter_conditions = [
-            models.FieldCondition(
-                key="text",
-                match=models.MatchText(text=query_text),
-            )
+        prefetch = [
+            models.Prefetch(
+                query=query_vector,
+                using="dense",
+                limit=self._prefetch_limit,
+                filter=query_filter,
+            ),
         ]
-        if query_filter and query_filter.must:
-            text_filter_conditions.extend(query_filter.must)
 
-        # Run dense + full-text search in parallel
-        dense_coro = self._client.query_points(
+        if sparse_vector is not None:
+            prefetch.append(
+                models.Prefetch(
+                    query=models.SparseVector(
+                        indices=sparse_vector.indices,
+                        values=sparse_vector.values,
+                    ),
+                    using="sparse",
+                    limit=self._prefetch_limit,
+                    filter=query_filter,
+                ),
+            )
+
+        results = await self._client.query_points(
             collection_name=self._collection,
-            query=query_vector,
-            limit=self._prefetch_limit,
-            query_filter=query_filter,
-        )
-        text_coro = self._client.scroll(
-            collection_name=self._collection,
-            scroll_filter=models.Filter(must=text_filter_conditions),
-            limit=self._prefetch_limit,
+            prefetch=prefetch,
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=top_k,
             with_payload=True,
-            with_vectors=False,
         )
 
-        dense_results, (text_results, _) = await asyncio.gather(dense_coro, text_coro)
-
-        # RRF fusion
-        return self._rrf_fuse(dense_results.points, text_results, top_k)
-
-    def _rrf_fuse(self, dense_points, text_points, top_k: int) -> list[dict]:
-        """Reciprocal Rank Fusion of dense and text search results."""
-        scores: dict[str, float] = {}
-        point_data: dict[str, dict] = {}
-
-        # Score dense results by rank
-        for rank, point in enumerate(dense_points):
-            pid = str(point.id)
-            scores[pid] = scores.get(pid, 0.0) + 1.0 / (self._rrf_k + rank + 1)
-            if pid not in point_data:
-                point_data[pid] = {
-                    "id": pid,
-                    "text": point.payload.get("text", ""),
-                    "metadata": {k: v for k, v in point.payload.items() if k != "text"},
-                }
-
-        # Score text results by rank
-        for rank, point in enumerate(text_points):
-            pid = str(point.id)
-            scores[pid] = scores.get(pid, 0.0) + 1.0 / (self._rrf_k + rank + 1)
-            if pid not in point_data:
-                point_data[pid] = {
-                    "id": pid,
-                    "text": point.payload.get("text", ""),
-                    "metadata": {k: v for k, v in point.payload.items() if k != "text"},
-                }
-
-        # Sort by fused score and return top_k
-        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-        results = []
-        for pid in sorted_ids[:top_k]:
-            entry = point_data[pid]
-            entry["score"] = scores[pid]
-            results.append(entry)
-        return results
+        return [
+            {
+                "id": str(point.id),
+                "score": point.score,
+                "text": point.payload.get("text", ""),
+                "metadata": {k: v for k, v in point.payload.items() if k != "text"},
+            }
+            for point in results.points
+        ]
 
     async def dense_search(
         self,
@@ -224,6 +222,7 @@ class QdrantService:
         results = await self._client.query_points(
             collection_name=self._collection,
             query=query_vector,
+            using="dense",
             limit=top_k,
             query_filter=query_filter,
         )

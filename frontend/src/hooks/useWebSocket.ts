@@ -114,7 +114,7 @@ export const useWebSocket = () => {
             addError(event.data.message);
             // Add error message to chat
             const errorMessage: Message = {
-              id: crypto.randomUUID(),
+              id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
               role: "assistant",
               content: `Error: ${event.data.message}`,
               timestamp: new Date(),
@@ -144,7 +144,7 @@ export const useWebSocket = () => {
 
           if (event.data?.answer) {
             const assistantMessage: Message = {
-              id: crypto.randomUUID(),
+              id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
               role: "assistant",
               content: event.data.answer,
               timestamp: new Date(),
@@ -214,7 +214,7 @@ export const useWebSocket = () => {
 
         // Add user message to chat
         const userMessage: Message = {
-          id: crypto.randomUUID(),
+          id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
           role: "user",
           content: query,
           timestamp: new Date(),

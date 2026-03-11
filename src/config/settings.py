@@ -39,8 +39,11 @@ class Settings(BaseSettings):
     qdrant_collection: str = "documents"
 
     # -- Embedding (via Ollama) --
-    embedding_model: str = "nomic-embed-text:latest"
+    embedding_model: str = "nomic-embed-text-v2-moe:latest"
     embedding_dim: int = 768
+
+    # -- Sparse Embedding (via model-server, FastEmbed BM25) --
+    sparse_embedding_model: str = "Qdrant/bm25"
 
     # -- Reranker --
     reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
@@ -61,9 +64,6 @@ class Settings(BaseSettings):
 
     # -- Redis --
     redis_url: str = "redis://redis:6379"
-
-    # -- PostgreSQL --
-    postgres_url: str = "postgresql://langgraph:langgraph@postgres:5432/langgraph"
 
     # -- LangGraph API Server --
     langgraph_api_url: str = "http://langgraph-server:8000"

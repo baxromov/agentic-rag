@@ -163,7 +163,7 @@ async def create_default_graph(checkpointer=None):
 
     Args:
         checkpointer: Optional checkpointer for state persistence.
-                      Pass AsyncPostgresSaver for persistent chat history.
+                      Pass AsyncMongoDBSaver for persistent chat history.
     """
     cached = getattr(_builtins, "_rag_cached_graph", None)
     if cached is not None:

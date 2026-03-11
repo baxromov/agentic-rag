@@ -26,6 +26,11 @@ interface AdminSettingsData {
     rerank_top_k: number;
     rrf_k: number;
   };
+  guardrails: {
+    input_safety_enabled: boolean;
+    output_safety_enabled: boolean;
+    intent_classification_enabled: boolean;
+  };
 }
 
 export const AdminSettings: React.FC = () => {
@@ -38,7 +43,17 @@ export const AdminSettings: React.FC = () => {
     const fetchSettings = async () => {
       try {
         const res = await apiFetch(`${API_BASE_URL}/admin/settings`);
-        if (res.ok) setSettings(await res.json());
+        if (res.ok) {
+          const data = await res.json();
+          setSettings({
+            ...data,
+            guardrails: data.guardrails ?? {
+              input_safety_enabled: true,
+              output_safety_enabled: true,
+              intent_classification_enabled: true,
+            },
+          });
+        }
       } catch (err) {
         console.error("Failed to fetch settings:", err);
       } finally {
@@ -82,6 +97,13 @@ export const AdminSettings: React.FC = () => {
 
   const updateRAG = (key: string, value: number) => {
     setSettings((s) => (s ? { ...s, rag: { ...s.rag, [key]: value } } : s));
+    setSaved(false);
+  };
+
+  const updateGuardrails = (key: string, value: boolean) => {
+    setSettings((s) =>
+      s ? { ...s, guardrails: { ...s.guardrails, [key]: value } } : s,
+    );
     setSaved(false);
   };
 
@@ -307,6 +329,78 @@ export const AdminSettings: React.FC = () => {
                   />
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* Guardrails Section */}
+          <section className="bg-card rounded-2xl border border-border-default p-6">
+            <h2 className="text-lg font-semibold text-text-primary mb-4">
+              Guardrails
+            </h2>
+            <p className="text-sm text-text-secondary mb-4">
+              LLM-based safety checks that run before and after agent responses.
+              Disabling these will skip the safety classification step.
+            </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-text-primary">Input Safety</span>
+                  <p className="text-xs text-text-secondary mt-0.5">
+                    Blocks identity probing, jailbreak, and prompt injection attempts
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.guardrails.input_safety_enabled}
+                    onChange={(e) =>
+                      updateGuardrails("input_safety_enabled", e.target.checked)
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-hover rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-text-primary">Output Safety</span>
+                  <p className="text-xs text-text-secondary mt-0.5">
+                    Validates responses for identity leaks, provider mentions, and off-character behavior
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.guardrails.output_safety_enabled}
+                    onChange={(e) =>
+                      updateGuardrails("output_safety_enabled", e.target.checked)
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-hover rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-text-primary">Intent Classification</span>
+                  <p className="text-xs text-text-secondary mt-0.5">
+                    LLM classifies queries as HR vs general. When off, all queries go through RAG retrieval.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.guardrails.intent_classification_enabled}
+                    onChange={(e) =>
+                      updateGuardrails("intent_classification_enabled", e.target.checked)
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-hover rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
             </div>
           </section>
         </div>

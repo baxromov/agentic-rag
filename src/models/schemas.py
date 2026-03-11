@@ -59,6 +59,30 @@ class DocumentDeleteResponse(BaseModel):
     deleted: bool
 
 
+class BulkDeleteRequest(BaseModel):
+    document_ids: list[str]
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: list[str]
+    failed: list[str]
+
+
+class BulkResyncRequest(BaseModel):
+    document_ids: list[str]
+
+
+class ResyncResult(BaseModel):
+    document_id: str
+    chunks_count: int
+    status: str  # "success" or "failed"
+    error: str | None = None
+
+
+class BulkResyncResponse(BaseModel):
+    results: list[ResyncResult]
+
+
 class KnowledgeBaseResponse(BaseModel):
     total_documents: int
     total_chunks: int

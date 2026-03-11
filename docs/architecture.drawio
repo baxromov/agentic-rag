@@ -1,0 +1,157 @@
+<mxfile host="app.diagrams.net" agent="docs" version="26.0">
+  <diagram name="Architecture" id="arch-1">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Docker Network boundary -->
+        <mxCell id="docker-net" value="Docker Network: rag-network (bridge, MTU 1500)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;fillColor=none;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;verticalAlign=top;align=center;spacingTop=5;" vertex="1" parent="1">
+          <mxGeometry x="200" y="100" width="1200" height="950" as="geometry" />
+        </mxCell>
+
+        <!-- User -->
+        <mxCell id="user" value="Пользователь" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="80" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ===== API Layer ===== -->
+        <mxCell id="api-group" value="API Layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="140" width="520" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fastapi" value="&lt;b&gt;FastAPI Backend&lt;/b&gt;&lt;br&gt;Python 3.12&lt;br&gt;:8000&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;REST API · SSE Streaming&lt;br&gt;LangGraph Agent&lt;br&gt;Document Ingestion&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="260" y="175" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="langgraph-srv" value="&lt;b&gt;LangGraph Server&lt;/b&gt;&lt;br&gt;:8123&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Input/Output Safety&lt;br&gt;Intent Router · Retrieve&lt;br&gt;Rerank · Grade · HITL&lt;br&gt;Generate · Rewrite&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="520" y="175" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- ===== AI / ML Layer ===== -->
+        <mxCell id="ml-group" value="AI / ML Layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="140" width="540" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="model-server" value="&lt;b&gt;Model Server&lt;/b&gt;&lt;br&gt;Reranker (FastEmbed)&lt;br&gt;CPU only · :8080&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;jina-reranker-v2&lt;br&gt;multilingual&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="840" y="175" width="200" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ollama" value="&lt;b&gt;Ollama&lt;/b&gt;&lt;br&gt;Host Machine · :11434&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;LLM: gpt-oss-120b / gpt-oss-20b&lt;br&gt;Embedding: nomic-embed-text&lt;br&gt;768-dim&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="175" width="240" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Data Layer ===== -->
+        <mxCell id="data-group" value="Data Layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="400" width="1100" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="qdrant" value="&lt;b&gt;Qdrant&lt;/b&gt;&lt;br&gt;Vector DB&lt;br&gt;:6333 / :6334&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Dense Vectors 768-dim&lt;br&gt;Full-Text Index&lt;br&gt;Hybrid RRF&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="260" y="435" width="160" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="postgres" value="&lt;b&gt;PostgreSQL 16&lt;/b&gt;&lt;br&gt;:5432&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;langgraph DB&lt;br&gt;Agent checkpoints&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="450" y="435" width="150" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mongodb" value="&lt;b&gt;MongoDB 7&lt;/b&gt;&lt;br&gt;:27017&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;users · chat_sessions&lt;br&gt;message_feedback&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="630" y="435" width="150" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="redis" value="&lt;b&gt;Redis 7&lt;/b&gt;&lt;br&gt;:6379&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Pub/Sub&lt;br&gt;Cache&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="810" y="435" width="130" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="minio" value="&lt;b&gt;MinIO&lt;/b&gt;&lt;br&gt;S3-compatible&lt;br&gt;:9000 / :9001&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;documents bucket&lt;br&gt;langfuse bucket&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="970" y="435" width="150" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Observability Layer ===== -->
+        <mxCell id="obs-group" value="Observability Layer (optional)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="660" width="1100" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="langfuse" value="&lt;b&gt;Langfuse v3&lt;/b&gt;&lt;br&gt;LLM Observability&lt;br&gt;:3000&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Web UI · Worker&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="260" y="700" width="200" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="langfuse-pg" value="&lt;b&gt;Langfuse PG&lt;/b&gt;&lt;br&gt;:5433&lt;br&gt;&lt;hr&gt;&lt;font style=&quot;font-size:10px&quot;&gt;langfuse DB&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#e6d0de;strokeColor=#996185;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="520" y="700" width="140" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="clickhouse" value="&lt;b&gt;ClickHouse&lt;/b&gt;&lt;br&gt;OLAP Analytics" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#e6d0de;strokeColor=#996185;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="710" y="700" width="140" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Connections: User ===== -->
+        <mxCell id="e-user-api" value="HTTPS :8000" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=11;" edge="1" source="user" target="fastapi" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Connections: FastAPI → services ===== -->
+        <mxCell id="e-api-lg" value="HTTP :8000" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="fastapi" target="langgraph-srv" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-ollama" value="HTTP :11434" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=10;" edge="1" source="fastapi" target="ollama" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-model" value="HTTP :8080" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=10;" edge="1" source="fastapi" target="model-server" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-qdrant" value="HTTP :6333" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="fastapi" target="qdrant" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-pg" value="TCP :5432" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="fastapi" target="postgres" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-mongo" value="TCP :27017" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="fastapi" target="mongodb" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-redis" value="TCP :6379" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="fastapi" target="redis" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-minio" value="HTTP :9000" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="fastapi" target="minio" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-langfuse" value="HTTP :3000" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#996185;fontSize=10;dashed=1;" edge="1" source="fastapi" target="langfuse" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Connections: LangGraph Server ===== -->
+        <mxCell id="e-lg-qdrant" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;dashPattern=4 2;" edge="1" source="langgraph-srv" target="qdrant" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lg-pg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;dashPattern=4 2;" edge="1" source="langgraph-srv" target="postgres" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lg-redis" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;dashPattern=4 2;" edge="1" source="langgraph-srv" target="redis" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lg-model" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=10;dashed=1;dashPattern=4 2;" edge="1" source="langgraph-srv" target="model-server" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lg-ollama" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=10;dashed=1;dashPattern=4 2;" edge="1" source="langgraph-srv" target="ollama" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lg-minio" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;dashPattern=4 2;" edge="1" source="langgraph-srv" target="minio" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Connections: Langfuse ===== -->
+        <mxCell id="e-lf-pg" value="TCP :5432" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#996185;fontSize=10;" edge="1" source="langfuse" target="langfuse-pg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lf-ch" value="HTTP :8123" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#996185;fontSize=10;" edge="1" source="langfuse" target="clickhouse" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lf-redis" value="TCP :6379" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#996185;fontSize=10;" edge="1" source="langfuse" target="redis" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lf-minio" value="HTTP :9000" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#996185;fontSize=10;" edge="1" source="langfuse" target="minio" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

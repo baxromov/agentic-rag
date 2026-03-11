@@ -2,12 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install build dependencies for cross-platform compatibility
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+# Install build dependencies with retry logic for corporate proxy
+RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::https::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries && \
+    for i in 1 2 3; do \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+        build-essential gcc g++ && break || \
+      (echo "apt retry $i/3..." && sleep 10); \
+    done && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip first with longer timeout, retries, and corporate network SSL bypass
 RUN pip config set global.timeout 1000 && \

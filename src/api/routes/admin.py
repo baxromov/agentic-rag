@@ -186,6 +186,11 @@ async def get_admin_settings(_: dict = Depends(require_admin)):
             "response_style": saved.get("response_style", "balanced"),
             "enable_citations": saved.get("enable_citations", True),
         },
+        "guardrails": {
+            "input_safety_enabled": saved.get("input_safety_enabled", True),
+            "output_safety_enabled": saved.get("output_safety_enabled", True),
+            "intent_classification_enabled": saved.get("intent_classification_enabled", True),
+        },
     }
 
 
@@ -196,13 +201,13 @@ async def update_admin_settings(data: dict, _: dict = Depends(require_admin)):
     # Flatten nested dict for storage
     flat: dict = {}
     has_langfuse_changes = False
-    for section in ("langfuse", "llm", "rag", "personalization"):
+    for section in ("langfuse", "llm", "rag", "personalization", "guardrails"):
         if section in data:
             for key, value in data[section].items():
                 if section == "langfuse":
                     flat[f"langfuse_{key}"] = value
                     has_langfuse_changes = True
-                elif section == "personalization":
+                elif section in ("personalization", "guardrails"):
                     flat[key] = value
                 elif section == "llm":
                     flat[key] = value

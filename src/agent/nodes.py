@@ -44,14 +44,20 @@ class IntentClassification(BaseModel):
 
 _INTENT_CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
-     "You are an intent classifier for Ipoteka Bank's HR assistant. "
+     "You are an intent classifier for Ipoteka Bank's internal knowledge assistant. "
      "Classify the user's question into exactly one of two categories:\n"
      "- hr_query: questions about company policies, HR regulations, internal documents, "
      "employee benefits, leave, salary, work rules, normative acts, banking procedures, "
-     "organizational structure, or anything that would be answered from internal company documents.\n"
-     "- general_query: everything else — weather, jokes, math, coding help, general knowledge, "
-     "personal advice, translation, greetings with questions, or any topic NOT related to "
-     "Ipoteka Bank's internal policies and documents.\n\n"
+     "organizational structure, licenses, contracts, client companies, partners, "
+     "any specific company/organization/person names that might appear in uploaded documents, "
+     "INN/STIR numbers, legal entities, addresses, or ANY question that could potentially "
+     "be answered from the organization's internal knowledge base documents. "
+     "When in doubt, classify as hr_query.\n"
+     "- general_query: ONLY clearly off-topic questions — weather, jokes, math, coding help, "
+     "general knowledge, personal advice, translation, or topics that are obviously NOT related "
+     "to any internal documents or business operations.\n\n"
+     "IMPORTANT: If the question mentions any specific company name, document, license, "
+     "contract, or business entity, ALWAYS classify as hr_query.\n\n"
      "Respond with ONLY the intent field."),
     ("human", "{query}"),
 ])
@@ -182,10 +188,18 @@ def make_intent_router_node(llm: BaseChatModel | None = None):
     async def intent_router(state: AgentState, config: RunnableConfig) -> dict:
         query = state["query"]
 
-        # Fast path: pattern-based greeting/thanks (no LLM needed)
+        # Check if intent classification is disabled — skip LLM call, send all to RAG
+        ctx = state.get("runtime_context") or {}
+        classification_enabled = ctx.get("intent_classification_enabled", True)
+
+        # Fast path: pattern-based greeting/thanks (no LLM needed, always active)
         intent = _classify_intent(query)
         if intent in ("greeting", "thanks"):
             return {"intent": intent}
+
+        # If intent classification is disabled, route everything to RAG
+        if not classification_enabled:
+            return {"intent": "hr_query"}
 
         # LLM-based classification: hr_query vs general_query
         if classifier_chain is not None:
@@ -387,15 +401,19 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
                 merged_filters.update(inferred_filters)
             effective_filters = merged_filters if merged_filters else None
 
-            # Batch embed ALL search queries in one Ollama call (1 HTTP round-trip instead of N)
-            all_vectors = await embedding.embed_documents(search_queries)
+            # Batch embed ALL search queries: dense (Ollama) + sparse (model-server BM25)
+            all_vectors, all_sparse = await asyncio.gather(
+                embedding.embed_documents(search_queries),
+                embedding.sparse_embed_documents(search_queries),
+            )
 
-            # Parallel hybrid search for all queries
+            # Parallel hybrid search for all queries (Qdrant-native RRF fusion)
             search_coros = [
                 qdrant.hybrid_search(
                     query_vector=all_vectors[i],
                     query_text=search_queries[i],
                     filters=effective_filters,
+                    sparse_vector=all_sparse[i] if i < len(all_sparse) else None,
                 )
                 for i in range(len(search_queries))
             ]

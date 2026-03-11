@@ -21,6 +21,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ArrowDownTrayIcon,
+  ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 import { useUploadStore } from "../../store/uploadStore";
 import { useAuthStore } from "../../store/authStore";
@@ -131,6 +132,10 @@ export const KnowledgeBaseDrive: React.FC = () => {
   const { addFiles, tasks, isProcessing } = useUploadStore();
   const { user } = useAuthStore();
   const isAdmin = user?.role === "admin";
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [resyncing, setResyncing] = useState(false);
 
   // Debounce search query
   useEffect(() => {
@@ -233,6 +238,84 @@ export const KnowledgeBaseDrive: React.FC = () => {
       }
     } catch (err) {
       console.error("Failed to delete document:", err);
+    }
+  };
+
+  const toggleSelection = (docId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === documents.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(documents.map((d) => d.document_id)));
+    }
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} document(s)?`)) return;
+
+    setBulkDeleting(true);
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/documents/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document_ids: Array.from(selectedIds) }),
+      });
+      if (!response.ok) throw new Error("Bulk delete failed");
+      exitSelectionMode();
+      await fetchKnowledgeBase(currentPage, debouncedSearch);
+    } catch (err) {
+      console.error("Bulk delete failed:", err);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleResync = async () => {
+    if (selectedIds.size === 0) return;
+    if (
+      !confirm(
+        `Re-chunk and resync ${selectedIds.size} document(s) with the vector database? This will re-parse, re-chunk, and re-embed the selected files.`,
+      )
+    )
+      return;
+
+    setResyncing(true);
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/documents/resync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document_ids: Array.from(selectedIds) }),
+      });
+      if (!response.ok) throw new Error("Resync failed");
+      const result = await response.json();
+      const failed = result.results?.filter(
+        (r: { status: string }) => r.status === "failed",
+      );
+      if (failed?.length > 0) {
+        alert(
+          `Resync completed. ${failed.length} document(s) failed:\n${failed.map((f: { document_id: string; error: string }) => `${f.document_id}: ${f.error}`).join("\n")}`,
+        );
+      }
+      exitSelectionMode();
+      await fetchKnowledgeBase(currentPage, debouncedSearch);
+    } catch (err) {
+      console.error("Resync failed:", err);
+    } finally {
+      setResyncing(false);
     }
   };
 
@@ -416,6 +499,20 @@ export const KnowledgeBaseDrive: React.FC = () => {
               </button>
             )}
 
+            {/* Select Mode Toggle (admin only) */}
+            {isAdmin && (
+              <button
+                onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium ${
+                  selectionMode
+                    ? "bg-blue-600 text-white"
+                    : "bg-input border border-border-default hover:bg-hover text-text-secondary"
+                }`}
+              >
+                {selectionMode ? "Cancel" : "Select"}
+              </button>
+            )}
+
             {/* View Mode Toggle */}
             <div className="flex items-center gap-1 bg-input rounded-lg p-1">
               <button
@@ -474,6 +571,43 @@ export const KnowledgeBaseDrive: React.FC = () => {
         )}
       </div>
 
+      {/* Selection Bar */}
+      {selectionMode && (
+        <div className="px-6 py-2.5 bg-blue-600/10 border-b border-blue-500/30 flex items-center gap-4 flex-shrink-0">
+          <input
+            type="checkbox"
+            checked={documents.length > 0 && selectedIds.size === documents.length}
+            onChange={toggleSelectAll}
+            className="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+          />
+          <span className="text-sm text-text-secondary">
+            {selectedIds.size > 0
+              ? `${selectedIds.size} selected`
+              : "Select documents"}
+          </span>
+          {selectedIds.size > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={handleResync}
+                disabled={resyncing || bulkDeleting}
+                className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors font-medium"
+              >
+                <ArrowPathIcon className={`w-4 h-4 ${resyncing ? "animate-spin" : ""}`} />
+                {resyncing ? "Resyncing..." : `Resync ${selectedIds.size}`}
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting || resyncing}
+                className="flex items-center gap-2 px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors font-medium"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {bulkDeleting ? "Deleting..." : `Delete ${selectedIds.size}`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-6">
         {/* Documents Grid/List */}
@@ -482,9 +616,27 @@ export const KnowledgeBaseDrive: React.FC = () => {
             {documents.map((doc) => (
               <div
                 key={doc.document_id}
-                className="group border border-border-default rounded-xl p-4 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer bg-card"
-                onClick={() => openPreview(doc)}
+                className={`group relative border rounded-xl p-4 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer bg-card ${
+                  selectionMode && selectedIds.has(doc.document_id)
+                    ? "border-blue-500 ring-1 ring-blue-500/50"
+                    : "border-border-default hover:border-blue-500/50"
+                }`}
+                onClick={() =>
+                  selectionMode ? toggleSelection(doc.document_id) : openPreview(doc)
+                }
               >
+                {/* Selection checkbox overlay */}
+                {selectionMode && (
+                  <div className="absolute top-2 left-2 z-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(doc.document_id)}
+                      onChange={() => toggleSelection(doc.document_id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+                    />
+                  </div>
+                )}
                 <div className="flex flex-col items-center gap-3">
                   {getFileIcon(doc.file_type)}
                   <div className="w-full text-center">
@@ -495,40 +647,42 @@ export const KnowledgeBaseDrive: React.FC = () => {
                       {formatFileSize(doc.size)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openPreview(doc);
-                      }}
-                      className="p-2 bg-blue-600/20 hover:bg-blue-600/30 rounded-lg"
-                      title="Preview"
-                    >
-                      <EyeIcon className="w-4 h-4 text-blue-400" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDownload(doc);
-                      }}
-                      className="p-2 bg-green-600/20 hover:bg-green-600/30 rounded-lg"
-                      title="Download"
-                    >
-                      <ArrowDownTrayIcon className="w-4 h-4 text-green-400" />
-                    </button>
-                    {isAdmin && (
+                  {!selectionMode && (
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(doc.document_id);
+                          openPreview(doc);
                         }}
-                        className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-lg"
-                        title="Delete"
+                        className="p-2 bg-blue-600/20 hover:bg-blue-600/30 rounded-lg"
+                        title="Preview"
                       >
-                        <TrashIcon className="w-4 h-4 text-red-400" />
+                        <EyeIcon className="w-4 h-4 text-blue-400" />
                       </button>
-                    )}
-                  </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownload(doc);
+                        }}
+                        className="p-2 bg-green-600/20 hover:bg-green-600/30 rounded-lg"
+                        title="Download"
+                      >
+                        <ArrowDownTrayIcon className="w-4 h-4 text-green-400" />
+                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(doc.document_id);
+                          }}
+                          className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-lg"
+                          title="Delete"
+                        >
+                          <TrashIcon className="w-4 h-4 text-red-400" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -538,6 +692,16 @@ export const KnowledgeBaseDrive: React.FC = () => {
             <table className="w-full">
               <thead className="bg-input/50 border-b border-border-default">
                 <tr>
+                  {selectionMode && (
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={documents.length > 0 && selectedIds.size === documents.length}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-text-muted uppercase">
                     Name
                   </th>
@@ -562,9 +726,26 @@ export const KnowledgeBaseDrive: React.FC = () => {
                 {documents.map((doc) => (
                   <tr
                     key={doc.document_id}
-                    className="hover:bg-input/50 cursor-pointer"
-                    onClick={() => openPreview(doc)}
+                    className={`cursor-pointer ${
+                      selectionMode && selectedIds.has(doc.document_id)
+                        ? "bg-blue-600/10"
+                        : "hover:bg-input/50"
+                    }`}
+                    onClick={() =>
+                      selectionMode ? toggleSelection(doc.document_id) : openPreview(doc)
+                    }
                   >
+                    {selectionMode && (
+                      <td className="px-4 py-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(doc.document_id)}
+                          onChange={() => toggleSelection(doc.document_id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+                        />
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <div className="flex-shrink-0">

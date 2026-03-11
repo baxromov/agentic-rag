@@ -1,0 +1,214 @@
+<mxfile host="app.diagrams.net" agent="docs" version="26.0">
+  <diagram name="Document Upload" id="flow-upload">
+    <mxGraphModel dx="1200" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="u1" value="Пользователь" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="180" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="api1" value="&lt;b&gt;FastAPI&lt;/b&gt;&lt;br&gt;Backend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="170" y="185" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="minio1" value="&lt;b&gt;MinIO&lt;/b&gt;&lt;br&gt;File Storage" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="170" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="parser" value="&lt;b&gt;Parser&lt;/b&gt;&lt;br&gt;Unstructured&lt;br&gt;+ OCR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="350" y="185" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="chunker" value="&lt;b&gt;Chunker&lt;/b&gt;&lt;br&gt;500 chars&lt;br&gt;overlap 100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="530" y="185" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="langdet" value="&lt;b&gt;Language&lt;br&gt;Detection&lt;/b&gt;&lt;br&gt;uz / ru / en" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="710" y="185" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="embedder" value="&lt;b&gt;Ollama&lt;/b&gt;&lt;br&gt;nomic-embed-text&lt;br&gt;768-dim" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="890" y="185" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="qdrant1" value="&lt;b&gt;Qdrant&lt;/b&gt;&lt;br&gt;Vector DB" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="175" width="120" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" value="POST /documents/upload" style="rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" source="u1" target="api1" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="Save file&#xa;SHA256" style="rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="api1" target="minio1" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="Extract text" style="rounded=1;html=1;strokeColor=#d6b656;fontSize=10;" edge="1" source="api1" target="parser" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="Raw text" style="rounded=1;html=1;strokeColor=#d6b656;fontSize=10;" edge="1" source="parser" target="chunker" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="Chunks" style="rounded=1;html=1;strokeColor=#d6b656;fontSize=10;" edge="1" source="chunker" target="langdet" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="Chunks + lang" style="rounded=1;html=1;strokeColor=#d6b656;fontSize=10;" edge="1" source="langdet" target="embedder" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="Vectors +&#xa;metadata" style="rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;" edge="1" source="embedder" target="qdrant1" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="Chat (RAG Agent)" id="flow-chat">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="cu" value="Пользователь" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="capi" value="&lt;b&gt;FastAPI&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="170" y="310" width="120" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent-box" value="LangGraph Agent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6c8ebf;dashed=1;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="80" width="1100" height="720" as="geometry" />
+        </mxCell>
+
+        <mxCell id="input-safety" value="&lt;b&gt;Input Safety&lt;/b&gt;&lt;br&gt;LLM Guardrail" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="310" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="router" value="&lt;b&gt;Intent Router&lt;/b&gt;&lt;br&gt;Pattern + LLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="550" y="310" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="greeting" value="Greeting&lt;br&gt;(template)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="550" y="120" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="general" value="General&lt;br&gt;(direct LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="550" y="200" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="qprep" value="&lt;b&gt;Query Prepare&lt;/b&gt;&lt;br&gt;Rewrite + Multi-query" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="730" y="310" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="retrieve" value="&lt;b&gt;Retrieve&lt;/b&gt;&lt;br&gt;Qdrant Hybrid (RRF)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="310" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rerank" value="&lt;b&gt;Rerank&lt;/b&gt;&lt;br&gt;Jina Reranker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="310" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="grader" value="&lt;b&gt;Grade Documents&lt;/b&gt;&lt;br&gt;Score threshold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="430" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="hitl" value="&lt;b&gt;Human Feedback&lt;/b&gt;&lt;br&gt;interrupt() — HITL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="550" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="expand" value="&lt;b&gt;Expand Context&lt;/b&gt;&lt;br&gt;Parent + neighbor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="430" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="generate" value="&lt;b&gt;Generate&lt;/b&gt;&lt;br&gt;LLM Response" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="730" y="430" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="output-safety" value="&lt;b&gt;Output Safety&lt;/b&gt;&lt;br&gt;LLM Guardrail" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="530" y="430" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rewrite" value="&lt;b&gt;Rewrite Query&lt;/b&gt;&lt;br&gt;LLM reformulation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="550" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cmongo" value="&lt;b&gt;MongoDB&lt;/b&gt;&lt;br&gt;Sessions" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="170" y="140" width="100" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cpg" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;Checkpoints" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="170" y="460" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ce1" value="POST /chat/stream&#xa;SSE" style="rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" source="cu" target="capi" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce1b" value="Session" style="rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="capi" target="cmongo" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce2" value="" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="capi" target="input-safety" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce3" value="Safe" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="input-safety" target="router" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce3g" value="greeting" style="rounded=1;html=1;strokeColor=#82b366;fontSize=10;dashed=1;" edge="1" source="router" target="greeting" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce3n" value="general" style="rounded=1;html=1;strokeColor=#82b366;fontSize=10;dashed=1;" edge="1" source="router" target="general" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce4" value="hr_query" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="router" target="qprep" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce5" value="" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="qprep" target="retrieve" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce6" value="Top-30" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="retrieve" target="rerank" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce7" value="Top-7" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="rerank" target="grader" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce8" value="Good ≥ 0.25" style="rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" source="grader" target="expand" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce8b" value="Bad → rewrite&#xa;(max 3)" style="rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;" edge="1" source="grader" target="rewrite" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce8c" value="All &lt; 0.25&#xa;after retry" style="rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;" edge="1" source="grader" target="hitl" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce8d" value="" style="rounded=1;html=1;strokeColor=#d6b656;fontSize=10;dashed=1;" edge="1" source="rewrite" target="retrieve" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce8e" value="clarification" style="rounded=1;html=1;strokeColor=#b85450;fontSize=10;dashed=1;" edge="1" source="hitl" target="cu" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce9" value="" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="expand" target="generate" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce10" value="" style="rounded=1;html=1;strokeColor=#6c8ebf;fontSize=10;" edge="1" source="generate" target="output-safety" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce11" value="SSE response" style="rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" source="output-safety" target="capi" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce11b" value="SSE: generation" style="rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" source="capi" target="cu" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="150" y="390" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="ce12" value="Checkpoint" style="rounded=1;html=1;strokeColor=#b85450;fontSize=10;" edge="1" source="capi" target="cpg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="Feedback" id="flow-feedback">
+    <mxGraphModel dx="800" dy="400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="fu" value="Пользователь" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="fapi" value="&lt;b&gt;FastAPI&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="220" y="110" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fmongo" value="&lt;b&gt;MongoDB&lt;/b&gt;&lt;br&gt;message_feedback" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="95" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fe1" value="POST /feedback&#xa;thumbs up/down" style="rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" source="fu" target="fapi" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe2" value="Save feedback&#xa;(thread_id + message_index)" style="rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;" edge="1" source="fapi" target="fmongo" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

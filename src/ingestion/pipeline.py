@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timezone
@@ -103,7 +104,11 @@ class IngestionPipeline:
                 embedding_texts.append(f"{c.section_header}\n\n{c.text}")
             else:
                 embedding_texts.append(c.text)
-        vectors = await self._embedding.embed_documents(embedding_texts)
+        # Run dense + sparse embeddings concurrently for speed
+        vectors, sparse_vectors = await asyncio.gather(
+            self._embedding.embed_documents(embedding_texts),
+            self._embedding.sparse_embed_documents(embedding_texts),
+        )
         now = datetime.now(timezone.utc).isoformat()
 
         payloads = []
@@ -127,8 +132,8 @@ class IngestionPipeline:
                 "created_at": now,
             })
 
-        # Upsert to Qdrant
-        point_ids = await self._qdrant.upsert(vectors, payloads)
+        # Upsert to Qdrant (dense + sparse vectors)
+        point_ids = await self._qdrant.upsert(vectors, payloads, sparse_vectors=sparse_vectors)
 
         # Hypothetical question embeddings (per unique parent chunk)
         hq_count = 0
@@ -146,7 +151,10 @@ class IngestionPipeline:
                     if not questions:
                         continue
 
-                    q_vectors = await self._embedding.embed_documents(questions)
+                    q_vectors, q_sparse = await asyncio.gather(
+                        self._embedding.embed_documents(questions),
+                        self._embedding.sparse_embed_documents(questions),
+                    )
                     q_payloads = [
                         {
                             "text": q,
@@ -163,7 +171,7 @@ class IngestionPipeline:
                         }
                         for q in questions
                     ]
-                    await self._qdrant.upsert(q_vectors, q_payloads)
+                    await self._qdrant.upsert(q_vectors, q_payloads, sparse_vectors=q_sparse)
                     hq_count += len(questions)
                 except Exception as e:
                     print(f"Hypothetical question generation failed for parent {chunk.parent_chunk_index}: {e}")
@@ -196,6 +204,84 @@ class IngestionPipeline:
         file_bytes = self._minio.download(minio_key)
         filename = minio_key.split("/")[-1]
         return await self.ingest_from_bytes(file_bytes, filename, document_id)
+
+    async def resync_document(self, document_id: str) -> dict:
+        """Re-chunk and re-sync a document: download from MinIO, delete old vectors, re-ingest."""
+        # Find the file in MinIO
+        minio_objects = self._minio.list_objects(prefix=f"{document_id}/")
+        if not minio_objects:
+            raise ValueError(f"Document {document_id} not found in MinIO")
+
+        obj_key = minio_objects[0]["key"]
+        filename = obj_key.split("/")[-1]
+
+        # Download file bytes from MinIO
+        file_bytes = self._minio.download(obj_key)
+
+        # Delete old vectors from Qdrant
+        await self._qdrant.delete_by_document_id(document_id)
+
+        # Re-ingest (skip dedup since we're intentionally re-processing)
+        minio_key = f"{document_id}/{filename}"
+
+        # Parse
+        parsed = parse_document(file_bytes, filename)
+
+        # Chunk
+        chunks = chunk_document(parsed, self._settings)
+
+        if not chunks:
+            return {
+                "document_id": document_id,
+                "chunks_count": 0,
+            }
+
+        # Detect languages and embed
+        texts = [c.text for c in chunks]
+        languages = detect_languages_batch(texts)
+
+        embedding_texts = []
+        for c in chunks:
+            if c.section_header:
+                embedding_texts.append(f"{c.section_header}\n\n{c.text}")
+            else:
+                embedding_texts.append(c.text)
+
+        vectors, sparse_vectors = await asyncio.gather(
+            self._embedding.embed_documents(embedding_texts),
+            self._embedding.sparse_embed_documents(embedding_texts),
+        )
+
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        now = datetime.now(timezone.utc).isoformat()
+
+        payloads = []
+        for i, chunk in enumerate(chunks):
+            payloads.append({
+                "text": chunk.text,
+                "parent_text": chunk.parent_chunk_text,
+                "parent_chunk_index": chunk.parent_chunk_index,
+                "point_type": "chunk",
+                "document_id": document_id,
+                "source": minio_key,
+                "file_type": parsed.file_type,
+                "file_hash": file_hash,
+                "language": languages[i],
+                "page_number": chunk.page_number,
+                "page_start": chunk.page_start,
+                "page_end": chunk.page_end,
+                "chunk_index": chunk.chunk_index,
+                "section_header": chunk.section_header,
+                "element_types": chunk.element_types,
+                "created_at": now,
+            })
+
+        await self._qdrant.upsert(vectors, payloads, sparse_vectors=sparse_vectors)
+
+        return {
+            "document_id": document_id,
+            "chunks_count": len(chunks),
+        }
 
     async def delete_document(self, document_id: str, minio_key: str | None = None) -> None:
         """Delete a document from both Qdrant and optionally MinIO."""

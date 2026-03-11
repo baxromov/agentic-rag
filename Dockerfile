@@ -24,15 +24,18 @@ RUN npm run build
 FROM python:3.12-slim
 
 # System dependencies for unstructured (PDF, DOCX, etc.) and OpenCV
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libmagic1 \
-    poppler-utils \
-    tesseract-ocr \
-    libreoffice-core \
-    pandoc \
-    libgl1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+# Retry logic for corporate proxy that drops connections
+RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::https::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries && \
+    for i in 1 2 3; do \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+        libmagic1 poppler-utils tesseract-ocr \
+        tesseract-ocr-uzb-cyrl tesseract-ocr-uzb tesseract-ocr-rus tesseract-ocr-eng \
+        libreoffice-core \
+        pandoc libgl1 libglib2.0-0 && break || \
+      (echo "apt retry $i/3..." && sleep 10); \
+    done && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

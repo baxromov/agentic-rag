@@ -10,7 +10,14 @@
       "Bash(docker compose down:*)",
       "Bash(docker volume rm:*)",
       "Bash(docker compose:*)",
-      "Bash(python -c:*)"
+      "Bash(python -c:*)",
+      "WebFetch(domain:langfuse.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+      "WebFetch(domain:docs.langchain.com)",
+      "WebFetch(domain:python.langchain.com)",
+      "WebFetch(domain:api.python.langchain.com)",
+      "Bash(cd:*)"
     ]
   }
 }
