@@ -243,7 +243,7 @@ async def get_knowledge_base(
     minio_objects = minio.list_objects()
 
     # Get document metadata from Qdrant
-    collection_info = await qdrant.get_collection_info()
+    collection_info = await qdrant.collection_info()
     points_count = collection_info.get("points_count", 0)
 
     # Build document metadata list

@@ -462,7 +462,7 @@ async def get_analytics(
     try:
         from src.api.dependencies import get_qdrant_service
         qdrant = await get_qdrant_service()
-        info = await qdrant.get_collection_info()
+        info = await qdrant.collection_info()
         doc_stats["total_chunks"] = info.get("points_count", 0)
     except Exception:
         pass

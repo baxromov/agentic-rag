@@ -186,6 +186,8 @@ async def stream_chat(request: StreamChatRequest, user: dict = Depends(get_curre
                 config=config,
                 stream_mode="updates",
             ):
+                if not isinstance(event, dict):
+                    continue
                 for node_name, node_output in event.items():
                     if node_output is None:
                         continue
@@ -292,6 +294,8 @@ async def resume_chat(request: ResumeRequest, user: dict = Depends(get_current_u
                 config=config,
                 stream_mode="updates",
             ):
+                if not isinstance(event, dict):
+                    continue
                 for node_name, node_output in event.items():
                     if node_output is None:
                         continue
@@ -435,6 +439,8 @@ async def websocket_chat(websocket: WebSocket):
                     config=config,
                     stream_mode="updates",
                 ):
+                    if not isinstance(event, dict):
+                        continue
                     for node_name, node_output in event.items():
                         if node_output is None:
                             continue

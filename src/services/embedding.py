@@ -1,4 +1,5 @@
 import httpx
+from langchain_core.embeddings import Embeddings as LCEmbeddings
 
 from src.config.settings import Settings
 
@@ -94,3 +95,36 @@ class EmbeddingService:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
+
+
+class LangChainDenseAdapter(LCEmbeddings):
+    """Wraps EmbeddingService as a LangChain Embeddings for QdrantVectorStore."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._base_url = settings.ollama_base_url
+        self._model = settings.embedding_model
+        self._sync_client = httpx.Client(timeout=300.0, verify=False)
+        self._async_client = httpx.AsyncClient(timeout=300.0, verify=False)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        resp = self._sync_client.post(
+            f"{self._base_url}/api/embed",
+            json={"model": self._model, "input": texts},
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([text])[0]
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        resp = await self._async_client.post(
+            f"{self._base_url}/api/embed",
+            json={"model": self._model, "input": texts},
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"]
+
+    async def aembed_query(self, text: str) -> list[float]:
+        result = await self.aembed_documents([text])
+        return result[0]

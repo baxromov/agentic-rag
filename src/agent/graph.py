@@ -24,7 +24,7 @@ from src.agent.nodes import (
 )
 from src.config.settings import get_settings
 from src.models.state import AgentState
-from src.services.embedding import EmbeddingService
+from src.services.embedding import LangChainDenseAdapter
 from src.services.llm import create_llm
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
@@ -55,7 +55,6 @@ def make_human_feedback_node():
 
 
 def build_graph(
-    embedding: EmbeddingService,
     qdrant: QdrantService,
     reranker: RerankerService,
     llm=None,
@@ -102,7 +101,7 @@ def build_graph(
 
     # Add nodes — RAG pipeline
     workflow.add_node("query_prepare", make_query_prepare_node(llm))
-    workflow.add_node("retrieve", make_retrieve_node(embedding, qdrant))
+    workflow.add_node("retrieve", make_retrieve_node(qdrant))
     workflow.add_node("rerank", make_rerank_node(reranker))
     workflow.add_node("grade_documents", make_grade_documents_node())
     workflow.add_node("human_feedback", make_human_feedback_node())
@@ -170,11 +169,10 @@ async def create_default_graph(checkpointer=None):
         return cached
 
     settings = get_settings()
-    embedding = EmbeddingService(settings)
-    qdrant = await QdrantService.create(settings)
+    qdrant = await QdrantService.create(settings, LangChainDenseAdapter(settings))
     reranker = RerankerService(settings)
     llm = create_llm(settings)
-    graph = build_graph(embedding, qdrant, reranker, llm, checkpointer=checkpointer)
+    graph = build_graph(qdrant, reranker, llm, checkpointer=checkpointer)
 
     _builtins._rag_cached_graph = graph
     return graph

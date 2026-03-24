@@ -16,6 +16,7 @@ dependencies = [
     "langchain-openai>=0.3.0",
     "langchain-ollama>=0.2.0",
     "qdrant-client[fastembed]>=1.12.0",
+    "langchain-qdrant>=0.2.0",
     "httpx>=0.28.0",
     "boto3>=1.35.0",
     "unstructured[pdf,docx,xlsx]>=0.16.0",  # PDF, DOCX, Excel parsing support

@@ -1,7 +1,7 @@
 from functools import lru_cache
 
 from src.config.settings import get_settings
-from src.services.embedding import EmbeddingService
+from src.services.embedding import LangChainDenseAdapter
 from src.services.minio_client import MinioService
 from src.services.qdrant_client import QdrantService
 from src.services.llm import create_llm
@@ -12,8 +12,8 @@ _qdrant_instance: QdrantService | None = None
 
 
 @lru_cache
-def get_embedding_service() -> EmbeddingService:
-    return EmbeddingService(get_settings())
+def get_dense_adapter() -> LangChainDenseAdapter:
+    return LangChainDenseAdapter(get_settings())
 
 
 @lru_cache
@@ -25,7 +25,7 @@ async def get_qdrant_service() -> QdrantService:
     """Async dependency for QdrantService with singleton pattern."""
     global _qdrant_instance
     if _qdrant_instance is None:
-        _qdrant_instance = await QdrantService.create(get_settings())
+        _qdrant_instance = await QdrantService.create(get_settings(), get_dense_adapter())
     return _qdrant_instance
 
 
@@ -40,6 +40,5 @@ async def get_ingestion_pipeline() -> IngestionPipeline:
         settings=get_settings(),
         minio=get_minio_service(),
         qdrant=await get_qdrant_service(),
-        embedding=get_embedding_service(),
         llm=get_llm(),
     )

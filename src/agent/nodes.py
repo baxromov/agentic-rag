@@ -19,7 +19,6 @@ from src.config.settings import get_settings
 from src.agent.validators import validate_generation
 from src.models.state import AgentState
 from src.services.context_manager import fit_documents_to_budget
-from src.services.embedding import EmbeddingService
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
 from src.utils.langfuse_integration import create_span
@@ -363,8 +362,8 @@ def make_query_prepare_node(llm: BaseChatModel):
     return query_prepare
 
 
-def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
-    """Create a retrieve node with batched embedding + parallel search."""
+def make_retrieve_node(qdrant: QdrantService):
+    """Create a retrieve node with parallel hybrid search via QdrantVectorStore."""
 
     async def retrieve(state: AgentState, config: RunnableConfig) -> dict:
         start_time = time.time()
@@ -391,21 +390,10 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
                 merged_filters.update(inferred_filters)
             effective_filters = merged_filters if merged_filters else None
 
-            # Batch embed ALL search queries: dense (Ollama) + sparse (model-server BM25)
-            all_vectors, all_sparse = await asyncio.gather(
-                embedding.embed_documents(search_queries),
-                embedding.sparse_embed_documents(search_queries),
-            )
-
-            # Parallel hybrid search for all queries (Qdrant-native RRF fusion)
+            # Parallel hybrid search for all queries (embedding handled by QdrantVectorStore)
             search_coros = [
-                qdrant.hybrid_search(
-                    query_vector=all_vectors[i],
-                    query_text=search_queries[i],
-                    filters=effective_filters,
-                    sparse_vector=all_sparse[i] if i < len(all_sparse) else None,
-                )
-                for i in range(len(search_queries))
+                qdrant.hybrid_search(query=q, filters=effective_filters)
+                for q in search_queries
             ]
             search_results = await asyncio.gather(*search_coros, return_exceptions=True)
 

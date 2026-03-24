@@ -1,8 +1,8 @@
-import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timezone
 
+from langchain_core.documents import Document
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langdetect import detect as _langdetect_detect
@@ -11,7 +11,6 @@ from langdetect import LangDetectException
 from src.config.settings import Settings
 from src.ingestion.chunker import chunk_document
 from src.ingestion.parser import parse_document
-from src.services.embedding import EmbeddingService
 from src.services.minio_client import MinioService
 from src.services.qdrant_client import QdrantService
 
@@ -49,13 +48,11 @@ class IngestionPipeline:
         settings: Settings,
         minio: MinioService,
         qdrant: QdrantService,
-        embedding: EmbeddingService,
         llm: BaseChatModel,
     ) -> None:
         self._settings = settings
         self._minio = minio
         self._qdrant = qdrant
-        self._embedding = embedding
         self._llm = llm
 
     async def ingest_from_bytes(
@@ -97,43 +94,10 @@ class IngestionPipeline:
         texts = [c.text for c in chunks]
         languages = detect_languages_batch(texts)
 
-        # Contextual chunk headers: prepend section_header for embedding only
-        embedding_texts = []
-        for c in chunks:
-            if c.section_header:
-                embedding_texts.append(f"{c.section_header}\n\n{c.text}")
-            else:
-                embedding_texts.append(c.text)
-        # Run dense + sparse embeddings concurrently for speed
-        vectors, sparse_vectors = await asyncio.gather(
-            self._embedding.embed_documents(embedding_texts),
-            self._embedding.sparse_embed_documents(embedding_texts),
-        )
         now = datetime.now(timezone.utc).isoformat()
-
-        payloads = []
-        for i, chunk in enumerate(chunks):
-            payloads.append({
-                "text": chunk.text,
-                "parent_text": chunk.parent_chunk_text,
-                "parent_chunk_index": chunk.parent_chunk_index,
-                "point_type": "chunk",
-                "document_id": document_id,
-                "source": minio_key,
-                "file_type": parsed.file_type,
-                "file_hash": file_hash,
-                "language": languages[i],
-                "page_number": chunk.page_number,
-                "page_start": chunk.page_start,
-                "page_end": chunk.page_end,
-                "chunk_index": chunk.chunk_index,
-                "section_header": chunk.section_header,
-                "element_types": chunk.element_types,
-                "created_at": now,
-            })
-
-        # Upsert to Qdrant (dense + sparse vectors)
-        point_ids = await self._qdrant.upsert(vectors, payloads, sparse_vectors=sparse_vectors)
+        point_ids = await self._embed_and_upsert(
+            chunks, languages, document_id, minio_key, parsed.file_type, file_hash, now
+        )
 
         # Hypothetical question embeddings (per unique parent chunk)
         hq_count = 0
@@ -151,27 +115,25 @@ class IngestionPipeline:
                     if not questions:
                         continue
 
-                    q_vectors, q_sparse = await asyncio.gather(
-                        self._embedding.embed_documents(questions),
-                        self._embedding.sparse_embed_documents(questions),
-                    )
-                    q_payloads = [
-                        {
-                            "text": q,
-                            "parent_text": chunk.parent_chunk_text,
-                            "parent_chunk_index": chunk.parent_chunk_index,
-                            "point_type": "hypothetical_question",
-                            "document_id": document_id,
-                            "source": minio_key,
-                            "file_type": parsed.file_type,
-                            "file_hash": file_hash,
-                            "language": detect_language(q),
-                            "section_header": chunk.section_header,
-                            "created_at": now,
-                        }
+                    q_docs = [
+                        Document(
+                            page_content=q,
+                            metadata={
+                                "point_type": "hypothetical_question",
+                                "document_id": document_id,
+                                "source": minio_key,
+                                "file_type": parsed.file_type,
+                                "file_hash": file_hash,
+                                "language": detect_language(q),
+                                "section_header": chunk.section_header,
+                                "parent_text": chunk.parent_chunk_text,
+                                "parent_chunk_index": chunk.parent_chunk_index,
+                                "created_at": now,
+                            },
+                        )
                         for q in questions
                     ]
-                    await self._qdrant.upsert(q_vectors, q_payloads, sparse_vectors=q_sparse)
+                    await self._qdrant.upsert(q_docs)
                     hq_count += len(questions)
                 except Exception as e:
                     print(f"Hypothetical question generation failed for parent {chunk.parent_chunk_index}: {e}")
@@ -240,48 +202,52 @@ class IngestionPipeline:
         texts = [c.text for c in chunks]
         languages = detect_languages_batch(texts)
 
-        embedding_texts = []
-        for c in chunks:
-            if c.section_header:
-                embedding_texts.append(f"{c.section_header}\n\n{c.text}")
-            else:
-                embedding_texts.append(c.text)
-
-        vectors, sparse_vectors = await asyncio.gather(
-            self._embedding.embed_documents(embedding_texts),
-            self._embedding.sparse_embed_documents(embedding_texts),
-        )
-
         file_hash = hashlib.sha256(file_bytes).hexdigest()
         now = datetime.now(timezone.utc).isoformat()
-
-        payloads = []
-        for i, chunk in enumerate(chunks):
-            payloads.append({
-                "text": chunk.text,
-                "parent_text": chunk.parent_chunk_text,
-                "parent_chunk_index": chunk.parent_chunk_index,
-                "point_type": "chunk",
-                "document_id": document_id,
-                "source": minio_key,
-                "file_type": parsed.file_type,
-                "file_hash": file_hash,
-                "language": languages[i],
-                "page_number": chunk.page_number,
-                "page_start": chunk.page_start,
-                "page_end": chunk.page_end,
-                "chunk_index": chunk.chunk_index,
-                "section_header": chunk.section_header,
-                "element_types": chunk.element_types,
-                "created_at": now,
-            })
-
-        await self._qdrant.upsert(vectors, payloads, sparse_vectors=sparse_vectors)
+        await self._embed_and_upsert(
+            chunks, languages, document_id, minio_key, parsed.file_type, file_hash, now
+        )
 
         return {
             "document_id": document_id,
             "chunks_count": len(chunks),
         }
+
+    async def _embed_and_upsert(
+        self,
+        chunks: list,
+        languages: list[str],
+        document_id: str,
+        minio_key: str,
+        file_type: str,
+        file_hash: str,
+        now: str,
+    ) -> list[str]:
+        """Build Documents and upsert to Qdrant (embedding handled by QdrantVectorStore)."""
+        documents = [
+            Document(
+                page_content=f"{c.section_header}\n\n{c.text}" if c.section_header else c.text,
+                metadata={
+                    "point_type": "chunk",
+                    "document_id": document_id,
+                    "source": minio_key,
+                    "file_type": file_type,
+                    "file_hash": file_hash,
+                    "language": languages[i],
+                    "page_number": c.page_number,
+                    "page_start": c.page_start,
+                    "page_end": c.page_end,
+                    "chunk_index": c.chunk_index,
+                    "section_header": c.section_header,
+                    "element_types": c.element_types,
+                    "parent_text": c.parent_chunk_text,
+                    "parent_chunk_index": c.parent_chunk_index,
+                    "created_at": now,
+                },
+            )
+            for i, c in enumerate(chunks)
+        ]
+        return await self._qdrant.upsert(documents)
 
     async def delete_document(self, document_id: str, minio_key: str | None = None) -> None:
         """Delete a document from both Qdrant and optionally MinIO."""
