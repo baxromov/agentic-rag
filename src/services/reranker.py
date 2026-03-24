@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 import httpx
@@ -39,10 +40,12 @@ class RerankerService:
         scored = []
         for entry in resp.json()["results"]:
             idx = entry["index"]
+            # Normalize raw logit to probability [0, 1] via sigmoid
+            normalized_score = 1.0 / (1.0 + math.exp(-entry["score"]))
             scored.append(
                 RerankResult(
                     text=documents[idx]["text"],
-                    score=entry["score"],
+                    score=normalized_score,
                     index=idx,
                     metadata=documents[idx].get("metadata", {}),
                 )

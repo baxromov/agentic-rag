@@ -528,15 +528,21 @@ def make_grade_documents_node():
         start_time = time.time()
         documents = state["documents"]
 
+        retries = state.get("retries", 0)
+
         if not documents:
-            return {"documents": []}
+            # No results at all — ask for clarification immediately
+            query_lang = state.get("query_language") or "en"
+            lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
+            clarification_question = _CLARIFICATION_TEMPLATES[lang].format(hint=_CLARIFICATION_HINTS[lang])
+            return {"documents": [], "needs_clarification": True, "clarification_question": clarification_question}
 
         initial_count = len(documents)
 
         with create_span("grade_documents", input={"doc_count": initial_count}) as span:
-            # Filter by reranker score threshold
-            # Jina reranker v2 scores: >0.5 = clearly relevant, 0.2-0.5 = maybe, <0.2 = irrelevant
-            score_threshold = 0.15
+            # Filter by reranker score threshold (sigmoid-normalized, range 0-1)
+            # >0.7 = clearly relevant, 0.4-0.7 = maybe relevant, <0.4 = likely irrelevant
+            score_threshold = 0.30
             filtered = [doc for doc in documents if doc.get("score", 0) >= score_threshold]
 
             # Always keep at least top 3 documents even if below threshold
@@ -545,13 +551,12 @@ def make_grade_documents_node():
             elif not filtered and documents:
                 filtered = documents[:1]
 
-            # HITL: if all docs score very low after a retry, ask for clarification
-            retries = state.get("retries", 0)
+            # HITL: if best doc scores below 50% (coin-flip relevance) after a retry, ask for clarification
             max_score = max((d.get("score", 0) for d in documents), default=0)
             needs_clarification = False
             clarification_question = None
 
-            if max_score < 0.25 and retries >= 1:
+            if max_score < 0.50 and retries >= 1:
                 query_lang = state.get("query_language") or "en"
                 lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
                 hint = _CLARIFICATION_HINTS[lang]

@@ -152,7 +152,7 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                       <span className="text-xs text-text-muted uppercase">{source.language}</span>
                     )}
                     {source.score !== null && source.score !== undefined && (
-                      <span className="text-xs text-text-muted">score: {source.score.toFixed(3)}</span>
+                      <span className="text-xs text-text-muted">{Math.round(source.score * 100)}% relevance</span>
                     )}
                   </div>
                   {source.document_id && (
