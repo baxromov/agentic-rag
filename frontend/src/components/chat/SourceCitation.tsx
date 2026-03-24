@@ -145,6 +145,9 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                     {source.page_number !== null && source.page_number !== undefined && (
                       <span className="text-xs text-text-muted">p.{source.page_number}</span>
                     )}
+                    {source.chunk_index !== null && source.chunk_index !== undefined && (
+                      <span className="text-xs text-text-muted">chunk #{source.chunk_index}</span>
+                    )}
                     {source.language && (
                       <span className="text-xs text-text-muted uppercase">{source.language}</span>
                     )}

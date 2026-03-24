@@ -16,10 +16,12 @@ export interface RuntimeContext {
 export interface SourceDocument {
   text: string;
   score?: number | null;
+  retrieval_score?: number | null;
   page_number?: number | null;
   source?: string | null;
   language?: string | null;
   document_id?: string | null;
+  chunk_index?: number | null;
 }
 
 export interface DocumentUploadResponse {
