@@ -101,11 +101,14 @@ async def get_session_messages(thread_id: str, user: dict = Depends(get_current_
         else:
             continue
 
-        entry: dict = {"role": role, "content": content}
-        # Attach sources to the last assistant message
-        if role == "assistant" and sources:
-            entry["sources"] = sources
-        messages.append(entry)
+        messages.append({"role": role, "content": content})
+
+    # Attach sources only to the last assistant message
+    if sources:
+        for entry in reversed(messages):
+            if entry["role"] == "assistant":
+                entry["sources"] = sources
+                break
 
     return messages
 
@@ -117,22 +120,26 @@ def _serialize_sources(documents: list) -> list[dict]:
         if isinstance(doc, dict):
             metadata = doc.get("metadata", {})
             sources.append({
-                "text": doc.get("page_content", "")[:500],
-                "score": metadata.get("score"),
+                "text": doc.get("text", ""),
+                "score": doc.get("score"),
+                "retrieval_score": doc.get("retrieval_score"),
                 "page_number": metadata.get("page_number"),
                 "source": metadata.get("source"),
                 "language": metadata.get("language"),
                 "document_id": metadata.get("document_id"),
+                "chunk_index": metadata.get("chunk_index"),
             })
         elif hasattr(doc, "page_content"):
             metadata = doc.metadata if hasattr(doc, "metadata") else {}
             sources.append({
-                "text": doc.page_content[:500],
+                "text": doc.page_content,
                 "score": metadata.get("score"),
+                "retrieval_score": None,
                 "page_number": metadata.get("page_number"),
                 "source": metadata.get("source"),
                 "language": metadata.get("language"),
                 "document_id": metadata.get("document_id"),
+                "chunk_index": metadata.get("chunk_index"),
             })
     return sources
 
