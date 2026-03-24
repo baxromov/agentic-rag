@@ -7,7 +7,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
 
 from src.agent.guardrails import validate_output
 from src.agent.prompt_factory import create_dynamic_system_prompt, detect_language
@@ -28,18 +27,6 @@ from src.services.reranker import RerankerService
 from src.utils.langfuse_integration import create_span
 from src.utils.telemetry import log_generation, log_grading, log_rerank, log_retrieval
 
-
-# --- LLM-based intent classification schema ---
-
-class IntentClassification(BaseModel):
-    """Classify whether a user query is about HR/company policies or a general off-topic question."""
-
-    intent: str = Field(
-        description="The classified intent: 'hr_query' for questions about company policies, "
-        "HR regulations, internal documents, employee benefits, leave, salary, etc. "
-        "'general_query' for everything else (weather, jokes, math, coding, personal advice, "
-        "general knowledge, etc.)."
-    )
 
 
 _INTENT_CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
@@ -179,11 +166,12 @@ def make_intent_router_node(llm: BaseChatModel | None = None):
     For other queries, uses LLM with structured output to distinguish
     hr_query (needs RAG) from general_query (direct LLM answer).
     """
-    # Build LLM classifier chain using native LangChain .with_structured_output()
-    classifier_chain = None
+    # Use raw text chain — more reliable than with_structured_output across all
+    # Ollama models (many don't support JSON/tool-calling mode).
+    # The prompt already instructs the model to output only the intent word.
+    raw_chain = None
     if llm is not None:
-        classifier = llm.with_structured_output(IntentClassification)
-        classifier_chain = _INTENT_CLASSIFY_PROMPT | classifier
+        raw_chain = _INTENT_CLASSIFY_PROMPT | llm
 
     async def intent_router(state: AgentState, config: RunnableConfig) -> dict:
         query = state["query"]
@@ -201,17 +189,19 @@ def make_intent_router_node(llm: BaseChatModel | None = None):
         if not classification_enabled:
             return {"intent": "hr_query"}
 
-        # LLM-based classification: hr_query vs general_query
-        if classifier_chain is not None:
+        # LLM-based classification: parse raw text output
+        if raw_chain is not None:
             try:
-                result = await classifier_chain.ainvoke(
-                    {"query": query}, config=config
-                )
-                if result.intent in ("hr_query", "general_query"):
-                    return {"intent": result.intent}
-            except Exception as e:
-                print(f"Intent classification error: {e}")
-                # Fall through to default hr_query
+                result = await raw_chain.ainvoke({"query": query}, config=config)
+                text = (
+                    result.content if hasattr(result, "content") else str(result)
+                ).strip().lower()
+                if "general_query" in text:
+                    return {"intent": "general_query"}
+                if "hr_query" in text:
+                    return {"intent": "hr_query"}
+            except Exception:
+                pass  # fall through to default
 
         return {"intent": "hr_query"}
 

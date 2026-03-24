@@ -17,7 +17,9 @@
       "WebFetch(domain:docs.langchain.com)",
       "WebFetch(domain:python.langchain.com)",
       "WebFetch(domain:api.python.langchain.com)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:mcp-atlassian.soomiles.com)"
     ]
   }
 }

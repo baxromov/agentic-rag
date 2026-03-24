@@ -388,7 +388,7 @@
     </mxGraphModel>
   </diagram>
   <diagram name="Access &amp; Resources" id="access-resources">
-    <mxGraphModel dx="2192" dy="1262" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1400" pageHeight="800" background="#FFFFFF" math="0" shadow="0">
+    <mxGraphModel dx="1500" dy="863" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1400" pageHeight="800" background="#FFFFFF" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -606,10 +606,10 @@
           <mxGeometry height="52" width="194" x="1166" y="408" as="geometry" />
         </mxCell>
         <mxCell id="ar-gpu-note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#AD1457;strokeWidth=2;fontColor=#AD1457;fontSize=11;verticalAlign=middle;arcSize=5;" value="&lt;b&gt;AI Models (GPU server)&lt;/b&gt;&lt;br/&gt;LLM · Embeddings · Reranker" vertex="1">
-          <mxGeometry height="77" width="640" x="730" y="466" as="geometry" />
+          <mxGeometry height="75" width="640" x="730" y="468" as="geometry" />
         </mxCell>
         <mxCell id="ar-gpu-note-text" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#AD1457;" value="Hosted on dedicated GPU server — &lt;b&gt;not counted in local resource budget&lt;/b&gt;" vertex="1">
-          <mxGeometry height="51" width="640" x="724" y="506" as="geometry" />
+          <mxGeometry height="51" width="640" x="724" y="501" as="geometry" />
         </mxCell>
         <mxCell id="ar-summary-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A237E;strokeColor=#0D1454;strokeWidth=2;arcSize=5;" value="" vertex="1">
           <mxGeometry height="60" width="1200" x="100" y="707" as="geometry" />

@@ -45,8 +45,7 @@
 | Embedding-модель | Ollama — nomic-embed-text (768 измерений) |
 | Reranker | jinaai/jina-reranker-v2-base-multilingual (FastEmbed) |
 | LLM (языковая модель) | Настраиваемо: Ollama (local) / Claude API / OpenAI API |
-| БД аутентификации | MongoDB 7 |
-| Состояние агента | PostgreSQL 16 (LangGraph checkpointer) |
+| БД аутентификации и состояние агента | MongoDB 7 (пользователи, сессии, feedback, LangGraph checkpoints — AsyncMongoDBSaver) |
 | Кэш и pub/sub | Redis 7 |
 | Observability | Langfuse v3 (опционально) |
 | Контейнеризация | Docker Compose |
@@ -68,14 +67,14 @@
                               │                             │                               │
                               │          ┌──────────────────┼──────────────────┐             │
                               │          │                  │                  │             │
-                              │          ▼                  ▼                  ▼             │
-                              │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-                              │  │   MongoDB    │  │  PostgreSQL  │  │    Redis     │       │
-                              │  │   :27017     │  │   :5432      │  │    :6379     │       │
-                              │  │ (users,      │  │ (langgraph   │  │ (pub/sub,    │       │
-                              │  │  feedback,   │  │  checkpoints,│  │  кэш,        │       │
-                              │  │  sessions)   │  │  состояние)  │  │  langfuse)   │       │
-                              │  └──────────────┘  └──────────────┘  └──────────────┘       │
+                              │          ▼                               ▼             │
+                              │  ┌──────────────────────────┐  ┌──────────────┐       │
+                              │  │         MongoDB           │  │    Redis     │       │
+                              │  │         :27017            │  │    :6379     │       │
+                              │  │ (users, feedback,         │  │ (pub/sub,    │       │
+                              │  │  sessions, checkpoints    │  │  кэш,        │       │
+                              │  │  AsyncMongoDBSaver)       │  │  langfuse)   │       │
+                              │  └──────────────────────────┘  └──────────────┘       │
                               │                             │                               │
                               │          ┌──────────────────┼──────────────────┐             │
                               │          ▼                  ▼                  ▼             │
@@ -120,7 +119,7 @@
 | Базовый образ | `python:3.12-slim` |
 | Порт | 8000 |
 | Назначение | Основной API-сервер: маршрутизация запросов, загрузка документов, чат (SSE-стриминг), аутентификация, сессии, feedback |
-| Зависимости | MinIO, Qdrant, Redis, PostgreSQL, MongoDB, Model Server, Ollama (на хосте) |
+| Зависимости | MinIO, Qdrant, Redis, MongoDB, Model Server, Ollama (на хосте) |
 
 Дополнительные системные пакеты в контейнере: `libmagic1`, `poppler-utils`, `tesseract-ocr`, `libreoffice-core`, `pandoc`, `libgl1`, `libglib2.0-0` — для парсинга PDF/DOCX/XLSX.
 
@@ -132,7 +131,7 @@
 | Базовый образ | `python:3.12-slim` |
 | Порт | 8123 (внутренний 8000) |
 | Назначение | Альтернативный API для LangGraph-агента (управление потоками, сессиями) |
-| Зависимости | MinIO, Qdrant, Redis, PostgreSQL, Model Server, Ollama (на хосте) |
+| Зависимости | MinIO, Qdrant, Redis, MongoDB, Model Server, Ollama (на хосте) |
 
 ### 3.3. Model Server (Reranker)
 
@@ -156,41 +155,25 @@
 | Метод поиска | Гибридный: dense + full-text с RRF-фьюжн (k=40) |
 | Volumes | `qdrant_data:/qdrant/storage` |
 
-### 3.5. PostgreSQL
-
-| Параметр | Значение |
-|----------|---------|
-| Образ | `postgres:16-alpine` |
-| Порт | 5432 |
-| Назначение | Хранение состояния агента (checkpoints) |
-| Используется | FastAPI Backend, LangGraph Server |
-
-**Базы данных в данном инстансе:**
-
-| БД | Пользователь | Назначение |
-|----|-------------|-----------|
-| `langgraph` | `langgraph` | Checkpoints и состояние LangGraph-графа (AsyncPostgresSaver) |
-
-Отдельный инстанс PostgreSQL для Langfuse описан в разделе 3.9.
-
-### 3.6. MongoDB
+### 3.5. MongoDB
 
 | Параметр | Значение |
 |----------|---------|
 | Образ | `mongo:7` |
 | Порт | 27017 |
-| Назначение | Хранение пользователей, сессий чатов, обратной связи |
+| Назначение | Хранение пользователей, сессий чатов, обратной связи, а также состояния LangGraph-агента (AsyncMongoDBSaver) |
 | Аутентификация | Без аутентификации (по умолчанию) |
 
-**Коллекции:**
+**Коллекции/БД:**
 
-| Коллекция | Назначение |
-|-----------|-----------|
-| `users` | Учётные записи пользователей (username, password_hash, role) |
-| `chat_sessions` | Метаданные сессий чата (title, user_id, message_count) |
-| `message_feedback` | Обратная связь по сообщениям (thumbs up/down, индекс по thread_id + message_index) |
+| База / Коллекция | Назначение |
+|-----------------|-----------|
+| `rag` / `users` | Учётные записи пользователей (username, password_hash, role) |
+| `rag` / `chat_sessions` | Метаданные сессий чата (title, user_id, message_count) |
+| `rag` / `message_feedback` | Обратная связь по сообщениям (thumbs up/down, индекс по thread_id + message_index) |
+| `langgraph` / checkpoints | Checkpoints и состояние LangGraph-графа (AsyncMongoDBSaver) |
 
-### 3.7. Redis
+### 3.6. Redis
 
 | Параметр | Значение |
 |----------|---------|
@@ -207,7 +190,7 @@
 | LangGraph Server | Координация агентов |
 | Langfuse Worker | Очередь обработки событий |
 
-### 3.8. MinIO (S3-совместимое хранилище)
+### 3.7. MinIO (S3-совместимое хранилище)
 
 | Параметр | Значение |
 |----------|---------|
@@ -223,7 +206,7 @@
 | `documents` | Загруженные документы (PDF, DOCX, XLSX) | `minio-init` контейнер |
 | `langfuse` | Данные Langfuse (events, media) | `minio-init` контейнер |
 
-### 3.9. Langfuse v3 (Observability) — опциональный
+### 3.8. Langfuse v3 (Observability) — опциональный
 
 Langfuse состоит из 4 контейнеров:
 
@@ -236,7 +219,7 @@ Langfuse состоит из 4 контейнеров:
 
 Langfuse включается/отключается переменной `LANGFUSE_ENABLED` (по умолчанию: `false`).
 
-### 3.10. Ollama (на хост-машине, вне Docker)
+### 3.9. Ollama (на хост-машине, вне Docker)
 
 | Параметр | Значение |
 |----------|---------|
@@ -337,8 +320,7 @@ GPU не требуется для LLM. Требуется исходящее п
 | LangGraph Server | 2 ядра | 1 GB | 2 GB | 3 GB | Аналогичный Python-стек |
 | Model Server | 2–4 ядра | 2 GB | 4 GB | 1 GB | CPU-inference reranker |
 | Qdrant | 2–4 ядра | 2 GB | 8 GB | Зависит от объёма данных | RAM пропорционален количеству векторов |
-| PostgreSQL (LangGraph) | 1–2 ядра | 512 MB | 1 GB | 5 GB | Checkpoints агента |
-| MongoDB | 1–2 ядра | 512 MB | 1 GB | 5 GB | Пользователи, сессии |
+| MongoDB | 1–2 ядра | 512 MB | 1 GB | 5 GB | Пользователи, сессии, checkpoints агента |
 | Redis | 1 ядро | 256 MB | 512 MB | 1 GB | In-memory pub/sub |
 | MinIO | 1–2 ядра | 512 MB | 1 GB | Зависит от объёма документов | Хранение файлов |
 | Langfuse (Web) | 1–2 ядра | 512 MB | 1 GB | 1 GB | Node.js Web UI |
@@ -346,7 +328,7 @@ GPU не требуется для LLM. Требуется исходящее п
 | Langfuse PostgreSQL | 1 ядро | 256 MB | 512 MB | 5 GB | Метаданные Langfuse |
 | Langfuse ClickHouse | 2 ядра | 1 GB | 2 GB | 10 GB | OLAP-аналитика |
 | Ollama (на хосте) | 4–8 ядер | 8–16 GB | 32 GB+ | 20–100 GB | Зависит от размера модели |
-| **Итого (без Ollama)** | **17–27 ядер** | **~10.5 GB** | **~26 GB** | **~36.5+ GB** | |
+| **Итого (без Ollama)** | **15–25 ядер** | **~10 GB** | **~25 GB** | **~31.5+ GB** | |
 
 ---
 
@@ -375,8 +357,7 @@ GPU не требуется для LLM. Требуется исходящее п
 | 6334 | 6334 | Qdrant | gRPC | gRPC API |
 | 6379 | 6379 | Redis | TCP (RESP) | Redis протокол |
 | 27017 | 27017 | MongoDB | TCP | MongoDB Wire Protocol |
-| 5432 | 5432 | PostgreSQL | TCP | PostgreSQL |
-| 5433 | 5432 | Langfuse PostgreSQL | TCP | PostgreSQL (Langfuse) |
+| 5433 | 5432 | Langfuse PostgreSQL | TCP | PostgreSQL (Langfuse — опционально) |
 | 3000 | 3000 | Langfuse | HTTP | Langfuse Web UI |
 
 ### 6.3. Внутренние соединения (Container → Container)
@@ -388,8 +369,7 @@ GPU не требуется для LLM. Требуется исходящее п
 | FastAPI | Qdrant | 6333 | HTTP | Поиск и запись векторов |
 | FastAPI | MinIO | 9000 | HTTP (S3) | Загрузка/скачивание документов |
 | FastAPI | Redis | 6379 | RESP | Pub/sub LangGraph |
-| FastAPI | PostgreSQL | 5432 | PostgreSQL | Чтение/запись checkpoints |
-| FastAPI | MongoDB | 27017 | MongoDB | Пользователи, сессии, feedback |
+| FastAPI | MongoDB | 27017 | MongoDB | Пользователи, сессии, feedback, checkpoints |
 | FastAPI | Model Server | 8080 | HTTP | Reranker-запросы |
 | FastAPI | Ollama (хост) | 11434 | HTTP | LLM inference, embeddings |
 | FastAPI | LangGraph Server | 8000 (внутр.) | HTTP | Управление сессиями |
@@ -397,7 +377,7 @@ GPU не требуется для LLM. Требуется исходящее п
 | LangGraph Server | Qdrant | 6333 | HTTP | Поиск векторов |
 | LangGraph Server | MinIO | 9000 | HTTP (S3) | Доступ к документам |
 | LangGraph Server | Redis | 6379 | RESP | Pub/sub |
-| LangGraph Server | PostgreSQL | 5432 | PostgreSQL | Checkpoints |
+| LangGraph Server | MongoDB | 27017 | MongoDB | Checkpoints |
 | LangGraph Server | Model Server | 8080 | HTTP | Reranker |
 | LangGraph Server | Ollama (хост) | 11434 | HTTP | LLM, embeddings |
 | Langfuse Web | Langfuse PG | 5432 | PostgreSQL | Метаданные |
@@ -585,7 +565,7 @@ SSE-события:
 |--------|----------|-------------|-----------|
 | Загруженные документы (файлы) | MinIO | Docker volume: `minio_data` | Нет (at-rest не настроено) |
 | Векторные представления (embeddings) | Qdrant | Docker volume: `qdrant_data` | Нет |
-| Состояние агента (checkpoints) | PostgreSQL | Docker volume: `postgres_data` | Нет |
+| Состояние агента (checkpoints) | MongoDB (AsyncMongoDBSaver) | Docker volume: `mongodb_data` | Нет |
 | Пользователи и пароли | MongoDB | Docker volume: `mongodb_data` | Пароли: bcrypt hash. БД: не зашифрована |
 | Сессии чатов (метаданные) | MongoDB | Docker volume: `mongodb_data` | Нет |
 | Обратная связь (feedback) | MongoDB | Docker volume: `mongodb_data` | Нет |
@@ -600,9 +580,8 @@ SSE-события:
 minio_data                  — файлы документов и данные Langfuse
 qdrant_data                 — векторная база данных
 redis_data                  — данные Redis
-postgres_data               — PostgreSQL (LangGraph)
-mongodb_data                — MongoDB (пользователи, сессии, feedback)
-langfuse_postgres_data      — PostgreSQL (Langfuse)
+mongodb_data                — MongoDB (пользователи, сессии, feedback, checkpoints LangGraph)
+langfuse_postgres_data      — PostgreSQL (Langfuse — опционально)
 langfuse_clickhouse_data    — ClickHouse (Langfuse аналитика)
 langfuse_clickhouse_logs    — логи ClickHouse
 model_cache                 — кэш reranker-модели
@@ -672,32 +651,31 @@ model_cache                 — кэш reranker-модели
 | 1 | **JWT Secret Key** | Значение по умолчанию: `super-secret-jwt-key-change-in-production` | Заменить на криптографически стойкий ключ (минимум 256 бит) |
 | 2 | **Пароль администратора** | `admin` / `admin123` | Заменить на стойкий пароль |
 | 3 | **MinIO credentials** | `minioadmin` / `minioadmin` | Заменить на уникальные учётные данные |
-| 4 | **PostgreSQL credentials** | `langgraph` / `langgraph` | Заменить на стойкий пароль |
-| 5 | **MongoDB аутентификация** | Отключена | Включить аутентификацию MongoDB |
-| 6 | **Redis аутентификация** | Отключена | Включить `requirepass` в Redis |
-| 7 | **CORS** | Разрешены все origins | Ограничить до конкретных доменов/IP |
-| 8 | **Langfuse secrets** | Значения по умолчанию (`SALT`, `ENCRYPTION_KEY`, `NEXTAUTH_SECRET`) | Заменить на уникальные значения |
+| 4 | **MongoDB аутентификация** | Отключена | Включить аутентификацию MongoDB |
+| 5 | **Redis аутентификация** | Отключена | Включить `requirepass` в Redis |
+| 6 | **CORS** | Разрешены все origins | Ограничить до конкретных доменов/IP |
+| 7 | **Langfuse secrets** | Значения по умолчанию (`SALT`, `ENCRYPTION_KEY`, `NEXTAUTH_SECRET`) | Заменить на уникальные значения (только если Langfuse включён) |
 
 ### 11.2. Высокий приоритет
 
 | # | Рекомендация | Описание |
 |---|-------------|---------|
-| 9 | **Закрыть неиспользуемые порты** | Оставить открытым для внешнего доступа только порт 8000 (API). Все остальные порты (Qdrant, Redis, MongoDB, PostgreSQL, MinIO, Model Server) убрать из `ports:` в docker-compose и оставить только внутренний доступ через Docker-сеть |
-| 10 | **HTTPS/TLS** | Настроить reverse proxy (nginx/traefik) с TLS-сертификатами для порта 8000 |
-| 11 | **Сетевая сегментация** | Выделить отдельные Docker-сети для: backend, data (БД), monitoring (Langfuse) |
-| 12 | **Rate limiting** | Добавить ограничение частоты запросов на API-эндпоинты (особенно `/auth/login`, `/chat/stream`) |
-| 13 | **Логирование аудита** | Настроить централизованное логирование всех действий пользователей |
+| 8 | **Закрыть неиспользуемые порты** | Оставить открытым для внешнего доступа только порт 8000 (API). Все остальные порты (Qdrant, Redis, MongoDB, MinIO, Model Server) убрать из `ports:` в docker-compose и оставить только внутренний доступ через Docker-сеть |
+| 9 | **HTTPS/TLS** | Настроить reverse proxy (nginx/traefik) с TLS-сертификатами для порта 8000 |
+| 10 | **Сетевая сегментация** | Выделить отдельные Docker-сети для: backend, data (БД), monitoring (Langfuse) |
+| 11 | **Rate limiting** | Добавить ограничение частоты запросов на API-эндпоинты (особенно `/auth/login`, `/chat/stream`) |
+| 12 | **Логирование аудита** | Настроить централизованное логирование всех действий пользователей |
 
 ### 11.3. Средний приоритет
 
 | # | Рекомендация | Описание |
 |---|-------------|---------|
-| 14 | **Шифрование данных at-rest** | Включить шифрование Docker volumes или использовать зашифрованные файловые системы |
-| 15 | **Backup** | Настроить регулярное резервное копирование volumes: `minio_data`, `qdrant_data`, `postgres_data`, `mongodb_data` |
-| 16 | **Resource limits** | Добавить `deploy.resources.limits` в docker-compose для всех контейнеров (CPU, memory) |
-| 17 | **Read-only rootfs** | Добавить `read_only: true` и явные `tmpfs` mounts для контейнеров, не требующих записи |
-| 18 | **Мониторинг и алерты** | Настроить мониторинг доступности и ресурсов (Prometheus + Grafana или аналог) |
-| 19 | **SSL verification** | После настройки внутренних CA-сертификатов убрать `PYTHONHTTPSVERIFY=0` и `NODE_TLS_REJECT_UNAUTHORIZED=0`, заменив на доверенные корневые сертификаты |
+| 13 | **Шифрование данных at-rest** | Включить шифрование Docker volumes или использовать зашифрованные файловые системы |
+| 14 | **Backup** | Настроить регулярное резервное копирование volumes: `minio_data`, `qdrant_data`, `mongodb_data` |
+| 15 | **Resource limits** | Добавить `deploy.resources.limits` в docker-compose для всех контейнеров (CPU, memory) |
+| 16 | **Read-only rootfs** | Добавить `read_only: true` и явные `tmpfs` mounts для контейнеров, не требующих записи |
+| 17 | **Мониторинг и алерты** | Настроить мониторинг доступности и ресурсов (Prometheus + Grafana или аналог) |
+| 18 | **SSL verification** | После настройки внутренних CA-сертификатов убрать `PYTHONHTTPSVERIFY=0` и `NODE_TLS_REJECT_UNAUTHORIZED=0`, заменив на доверенные корневые сертификаты |
 
 ---
 

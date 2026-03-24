@@ -18,8 +18,21 @@ cp -r /path/to/.claude/ ./your-new-project/.claude/
 /security-audit    # Run security audit
 /rag-review        # Review RAG pipeline quality
 /project-doc       # Generate documentation
-/drawio-gen        # Create architecture diagrams
+/drawio-gen        # Generate draw.io XML diagrams (importable .drawio files)
+/system-arch       # Generate all system architecture + flow diagrams (Mermaid/draw.io/ASCII)
 ```
+
+## Architecture Diagrams
+See `.claude/docs/architecture.md` for full system diagrams:
+- Service topology (Docker Compose)
+- LangGraph agent flow (full state machine)
+- Document ingestion pipeline
+- Hybrid search internals (RRF)
+- Chat sequence diagram (SSE + HITL)
+- Auth & JWT flow
+- Resource requirements per service
+- Qdrant point schema
+- MongoDB data models
 
 ## Sub-Agents
 - **rag-architect** — System design, tech stack selection, infrastructure planning
