@@ -117,30 +117,45 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                 key={index}
                 className="p-3 bg-card rounded border border-border-default"
               >
-                {/* Source metadata */}
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  {source.source && (
-                    <Badge variant="default" size="sm">
-                      {source.source}
-                    </Badge>
-                  )}
-                  {source.page_number !== null && source.page_number !== undefined && (
-                    <Badge variant="default" size="sm">
-                      Page {source.page_number}
-                    </Badge>
-                  )}
-                  {source.language && (
-                    <Badge variant="default" size="sm">
-                      {source.language.toUpperCase()}
-                    </Badge>
-                  )}
-                  {source.score !== null && source.score !== undefined && (
-                    <Badge variant="info" size="sm">
-                      Score: {source.score.toFixed(3)}
-                    </Badge>
-                  )}
-                  {source.document_id && (
-                    <div className="flex items-center gap-1">
+                {/* Source metadata row */}
+                <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Filename as clickable download link */}
+                    {source.source && (
+                      source.document_id ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownload(source.document_id!, source.source || 'document');
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded transition-colors max-w-[200px] truncate"
+                          title={source.source}
+                        >
+                          <ArrowDownTrayIcon className="h-3 w-3 flex-shrink-0" />
+                          {source.source}
+                        </button>
+                      ) : (
+                        <Badge variant="default" size="sm">{source.source}</Badge>
+                      )
+                    )}
+                    {source.page_number !== null && source.page_number !== undefined && (
+                      <Badge variant="default" size="sm">
+                        Page {source.page_number}
+                      </Badge>
+                    )}
+                    {source.language && (
+                      <Badge variant="default" size="sm">
+                        {source.language.toUpperCase()}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {source.score !== null && source.score !== undefined && (
+                      <Badge variant="info" size="sm">
+                        Score: {source.score.toFixed(3)}
+                      </Badge>
+                    )}
+                    {source.document_id && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -151,22 +166,12 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                         <EyeIcon className="h-3 w-3" />
                         Preview
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDownload(source.document_id!, source.source || 'document');
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded transition-colors"
-                      >
-                        <ArrowDownTrayIcon className="h-3 w-3" />
-                        Download
-                      </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {/* Text preview */}
-                <p className="text-sm text-text-secondary line-clamp-3">
+                {/* Full chunk text */}
+                <p className="text-sm text-text-secondary whitespace-pre-wrap break-words">
                   {source.text}
                 </p>
               </div>

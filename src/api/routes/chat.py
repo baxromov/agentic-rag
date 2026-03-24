@@ -497,7 +497,7 @@ def _serialize_sources(documents: list) -> list[dict]:
         if isinstance(doc, dict):
             metadata = doc.get("metadata", {})
             sources.append({
-                "text": doc.get("page_content", "")[:500],
+                "text": doc.get("page_content", ""),
                 "score": metadata.get("score"),
                 "page_number": metadata.get("page_number"),
                 "source": metadata.get("source"),
@@ -507,7 +507,7 @@ def _serialize_sources(documents: list) -> list[dict]:
         elif hasattr(doc, "page_content"):
             metadata = doc.metadata if hasattr(doc, "metadata") else {}
             sources.append({
-                "text": doc.page_content[:500],
+                "text": doc.page_content,
                 "score": metadata.get("score"),
                 "page_number": metadata.get("page_number"),
                 "source": metadata.get("source"),
