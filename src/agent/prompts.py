@@ -61,6 +61,34 @@ REWRITE_HUMAN = """Original question: {query}
 
 Rewrite this question to be more specific and improve search results:"""
 
+REWRITE_SYSTEM_RU = """Вы переписываете запросы сотрудников для улучшения поиска в HR-документах Ипотека Банка.
+Используйте точную HR-терминологию. Примеры:
+- "отпуск" → "ежегодный оплачиваемый отпуск"
+- "больничный" → "лист временной нетрудоспособности"
+- "медицина" / "медицинские учреждения" → "медицинское страхование ДМС", "список клиник-партнёров", "доступные поликлиники и амбулатории"
+- "зарплата" → "порядок начисления заработной платы"
+- "командировка" → "порядок направления в служебную командировку"
+
+Верните ТОЛЬКО переформулированный запрос, без объяснений."""
+
+REWRITE_HUMAN_RU = """Исходный запрос: {query}
+
+Переформулируйте для улучшения поиска:"""
+
+REWRITE_SYSTEM_UZ = """Siz Ipoteka Bank HR hujjatlarida qidirishni yaxshilash uchun xodimlarning so'rovlarini qayta yozasiz.
+Aniq HR terminologiyasidan foydalaning. Misollar:
+- "ta'til" → "yillik pullik ta'til tartibi"
+- "kasallik" → "vaqtinchalik mehnat qobiliyatsizligi varag'i"
+- "tibbiyot" / "tibbiy muassasalar" → "ixtiyoriy tibbiy sug'urta", "hamkor klinikalar ro'yxati", "mavjud poliklinikalar"
+- "maosh" → "ish haqi hisoblash tartibi"
+- "xizmat safari" → "xizmat safariga yuborish tartibi"
+
+FAQAT qayta yozilgan so'rovni qaytaring, tushuntirmasdan."""
+
+REWRITE_HUMAN_UZ = """Asl so'rov: {query}
+
+Qidiruvni yaxshilash uchun qayta yozing:"""
+
 
 QUERY_PREPARE_SYSTEM = """You are a search query optimizer for an HR policy vector store at Ipoteka Bank. \
 Given an employee question, produce a JSON object with these fields:
@@ -80,3 +108,55 @@ Return ONLY valid JSON, no markdown, no explanation."""
 QUERY_PREPARE_HUMAN = """Employee question: {query}
 
 Optimize and transform:"""
+
+QUERY_PREPARE_SYSTEM_RU = """Вы оптимизируете поисковые запросы для векторной базы HR-политик Ипотека Банка.
+По вопросу сотрудника сформируйте JSON-объект со следующими полями:
+
+1. "search_query": вопрос переформулирован с точной HR/юридической терминологией. Сохраните язык вопроса.
+2. "search_queries": массив из 2-3 альтернативных формулировок с другой HR-терминологией.
+   Для медицинских вопросов включите синонимы: "поликлиника", "клиника", "амбулатория", "ДМС", "медицинское страхование".
+   Для отпускных вопросов: "ежегодный отпуск", "оплачиваемый отпуск", "отпускные".
+3. "step_back_query": более широкая, обобщённая версия вопроса для расширенного поиска контекста.
+4. "filters": выведенные метаданные-фильтры (null если не определено). Возможные ключи:
+   - "language": "ru" (только если пользователь явно запрашивает язык)
+
+Верните ТОЛЬКО валидный JSON, без markdown, без объяснений."""
+
+QUERY_PREPARE_HUMAN_RU = """Вопрос сотрудника: {query}
+
+Оптимизируйте и преобразуйте:"""
+
+QUERY_PREPARE_SYSTEM_UZ = """Siz Ipoteka Bank HR siyosati vektoral bazasi uchun qidiruv so'rovlarini optimallashtirasiz.
+Xodimning savoliga asosan quyidagi maydonlar bilan JSON-ob'ekt yarating:
+
+1. "search_query": aniq HR/huquqiy terminologiya bilan qayta yozilgan savol. Savol tilini saqlang.
+2. "search_queries": turli HR terminologiyasi bilan 2-3 ta muqobil iboralar massivi.
+   Tibbiy savollar uchun sinonimlarni kiriting: "poliklinika", "klinika", "ambulator", "ixtiyoriy tibbiy sug'urta", "tibbiy muassasa".
+   Ta'til savollari uchun: "yillik ta'til", "pullik ta'til", "ta'til pullari".
+3. "step_back_query": keng kontekstni qidirish uchun savolning kengroq, umumlashtirilgan versiyasi.
+4. "filters": taxmin qilingan metadata filtrlari (aniqlanmasa null). Mumkin bo'lgan kalitlar:
+   - "language": "uz" (faqat foydalanuvchi til so'ragan taqdirda)
+
+FAQAT haqiqiy JSON qaytaring, markdown yoki tushuntirmasdan."""
+
+QUERY_PREPARE_HUMAN_UZ = """Xodimning savoli: {query}
+
+Optimallashtirib o'zgartiring:"""
+
+
+def get_query_prepare_prompts(language: str) -> tuple[str, str]:
+    """Return (system_prompt, human_template) for the given language."""
+    if language == "ru":
+        return QUERY_PREPARE_SYSTEM_RU, QUERY_PREPARE_HUMAN_RU
+    if language == "uz":
+        return QUERY_PREPARE_SYSTEM_UZ, QUERY_PREPARE_HUMAN_UZ
+    return QUERY_PREPARE_SYSTEM, QUERY_PREPARE_HUMAN
+
+
+def get_rewrite_prompts(language: str) -> tuple[str, str]:
+    """Return (system_prompt, human_template) for the given language."""
+    if language == "ru":
+        return REWRITE_SYSTEM_RU, REWRITE_HUMAN_RU
+    if language == "uz":
+        return REWRITE_SYSTEM_UZ, REWRITE_HUMAN_UZ
+    return REWRITE_SYSTEM, REWRITE_HUMAN

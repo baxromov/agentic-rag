@@ -12,10 +12,8 @@ from src.agent.guardrails import validate_output
 from src.agent.prompt_factory import create_dynamic_system_prompt, detect_language
 from src.agent.prompts import (
     GENERATION_HUMAN,
-    QUERY_PREPARE_HUMAN,
-    QUERY_PREPARE_SYSTEM,
-    REWRITE_HUMAN,
-    REWRITE_SYSTEM,
+    get_query_prepare_prompts,
+    get_rewrite_prompts,
 )
 from src.config.settings import get_settings
 from src.agent.validators import validate_generation
@@ -308,9 +306,11 @@ def make_query_prepare_node(llm: BaseChatModel):
 
     async def query_prepare(state: AgentState, config: RunnableConfig) -> dict:
         query = state["query"]
+        lang = detect_language(query)
+        system_prompt, human_template = get_query_prepare_prompts(lang)
         messages = [
-            SystemMessage(content=QUERY_PREPARE_SYSTEM),
-            HumanMessage(content=QUERY_PREPARE_HUMAN.format(query=query)),
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_template.format(query=query)),
         ]
         response = await llm.ainvoke(messages, config=config)
 
@@ -427,7 +427,7 @@ def make_retrieve_node(embedding: EmbeddingService, qdrant: QdrantService):
                 for doc in documents:
                     doc_lang = doc.get("metadata", {}).get("language", "")
                     if doc_lang == detected_language:
-                        doc["score"] = doc["score"] * 1.1
+                        doc["score"] = min(doc["score"] * 1.25, 1.0)
                         doc["language_match"] = True
                     else:
                         doc["language_match"] = False
@@ -551,13 +551,15 @@ def make_grade_documents_node():
             elif not filtered and documents:
                 filtered = documents[:1]
 
-            # HITL: if best doc scores below 50% (coin-flip relevance) after a retry, ask for clarification
+            # HITL: if best doc scores below threshold after a retry, ask for clarification.
+            # Lower threshold for ru/uz because jina-reranker has English bias.
             max_score = max((d.get("score", 0) for d in documents), default=0)
             needs_clarification = False
             clarification_question = None
+            query_lang = state.get("query_language") or "en"
+            hitl_threshold = 0.35 if query_lang in ("ru", "uz") else 0.50
 
-            if max_score < 0.50 and retries >= 1:
-                query_lang = state.get("query_language") or "en"
+            if max_score < hitl_threshold and retries >= 1:
                 lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
                 hint = _CLARIFICATION_HINTS[lang]
                 clarification_question = _CLARIFICATION_TEMPLATES[lang].format(hint=hint)
@@ -753,9 +755,11 @@ def make_rewrite_query_node(llm: BaseChatModel):
     async def rewrite_query(state: AgentState, config: RunnableConfig) -> dict:
         query = state.get("search_query") or state["query"]
         retries = state.get("retries", 0)
+        lang = state.get("query_language") or detect_language(query)
+        system_prompt, human_template = get_rewrite_prompts(lang)
         messages = [
-            SystemMessage(content=REWRITE_SYSTEM),
-            HumanMessage(content=REWRITE_HUMAN.format(query=query)),
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_template.format(query=query)),
         ]
         response = await llm.ainvoke(messages, config=config)
         rewritten = response.content.strip()

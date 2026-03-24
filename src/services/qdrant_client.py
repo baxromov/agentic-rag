@@ -195,7 +195,7 @@ class QdrantService:
         results = await self._client.query_points(
             collection_name=self._collection,
             prefetch=prefetch,
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query=models.FusionQuery(fusion=models.Fusion.RRF, rrf=models.RRFParams(k=self._rrf_k)),
             limit=top_k,
             with_payload=True,
         )

@@ -42,6 +42,10 @@ class RerankerService:
             idx = entry["index"]
             # Normalize raw logit to probability [0, 1] via sigmoid
             normalized_score = 1.0 / (1.0 + math.exp(-entry["score"]))
+            # Boost scores for Russian/Uzbek to compensate for jina-reranker's English bias
+            doc_lang = documents[idx].get("metadata", {}).get("language", "en")
+            if doc_lang in ("ru", "uz"):
+                normalized_score = min(normalized_score * 1.15, 1.0)
             scored.append(
                 RerankResult(
                     text=documents[idx]["text"],
