@@ -117,10 +117,14 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                 key={index}
                 className="p-3 bg-card rounded border border-border-default"
               >
-                {/* Source metadata row */}
-                <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                {/* Primary: chunk text */}
+                <p className="text-sm text-text-primary whitespace-pre-wrap break-words mb-3">
+                  {source.text}
+                </p>
+
+                {/* Secondary: file info + actions */}
+                <div className="flex items-center justify-between gap-2 flex-wrap border-t border-border-default pt-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Filename as clickable download link */}
                     {source.source && (
                       source.document_id ? (
                         <button
@@ -128,52 +132,39 @@ export const SourceCitation: React.FC<SourceCitationProps> = ({ sources }) => {
                             e.stopPropagation();
                             handleDownload(source.document_id!, source.source || 'document');
                           }}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded transition-colors max-w-[200px] truncate"
+                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors max-w-[200px] truncate"
                           title={source.source}
                         >
                           <ArrowDownTrayIcon className="h-3 w-3 flex-shrink-0" />
                           {source.source}
                         </button>
                       ) : (
-                        <Badge variant="default" size="sm">{source.source}</Badge>
+                        <span className="text-xs text-text-muted">{source.source}</span>
                       )
                     )}
                     {source.page_number !== null && source.page_number !== undefined && (
-                      <Badge variant="default" size="sm">
-                        Page {source.page_number}
-                      </Badge>
+                      <span className="text-xs text-text-muted">p.{source.page_number}</span>
                     )}
                     {source.language && (
-                      <Badge variant="default" size="sm">
-                        {source.language.toUpperCase()}
-                      </Badge>
+                      <span className="text-xs text-text-muted uppercase">{source.language}</span>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
                     {source.score !== null && source.score !== undefined && (
-                      <Badge variant="info" size="sm">
-                        Score: {source.score.toFixed(3)}
-                      </Badge>
-                    )}
-                    {source.document_id && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDocPreview(source);
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded transition-colors"
-                      >
-                        <EyeIcon className="h-3 w-3" />
-                        Preview
-                      </button>
+                      <span className="text-xs text-text-muted">score: {source.score.toFixed(3)}</span>
                     )}
                   </div>
+                  {source.document_id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDocPreview(source);
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
+                    >
+                      <EyeIcon className="h-3 w-3" />
+                      Preview
+                    </button>
+                  )}
                 </div>
-
-                {/* Full chunk text */}
-                <p className="text-sm text-text-secondary whitespace-pre-wrap break-words">
-                  {source.text}
-                </p>
               </div>
             ))}
           </div>
