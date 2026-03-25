@@ -10,9 +10,7 @@
 
 const API_PORT = 8000;
 
-const rawHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-// Fix Windows IPv6 issue: "localhost" → "127.0.0.1"
-const host = rawHost === 'localhost' ? '127.0.0.1' : rawHost;
+const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
 const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
 
