@@ -233,10 +233,6 @@ def create_dynamic_system_prompt(
         }
         prompt_parts.append(beginner_instructions.get(detected_language, beginner_instructions["en"]))
 
-    # Add query type-specific instructions
-    type_instruction = get_language_specific_instructions(detected_language, query_type)
-    prompt_parts.append(type_instruction)
-
     # Add document type-specific instructions
     if doc_types:
         dominant_type = max(doc_types.items(), key=lambda x: x[1])[0]
@@ -272,11 +268,11 @@ def create_dynamic_system_prompt(
     }
     prompt_parts.append(grounding_instructions.get(detected_language, grounding_instructions["en"]))
 
-    # Strict output rules
+    # Strict output rules — no length cap here; format instruction below sets the right shape
     output_rules = {
-        "en": "STRICT RULES: Short, clear, professional — 2-5 sentences max. NEVER show sources, citations, page numbers, document names. NEVER write 'according to', 'as stated in', 'based on'. No introductions, no filler, no repetition. Only the final correct answer.",
-        "ru": "СТРОГИЕ ПРАВИЛА: Кратко, ясно, профессионально — максимум 2-5 предложений. НИКОГДА не указывайте источники, цитаты, номера страниц, названия документов. НИКОГДА не пишите 'согласно документу', 'как указано в', 'на основании'. Без вступлений, без лишних слов, без повторений. Только итоговый правильный ответ.",
-        "uz": "QATTIY QOIDALAR: Qisqa, aniq, professional — maksimum 2-5 gap. HECH QACHON manbalar, iqtiboslar, sahifa raqamlari, hujjat nomlari ko'rsatmang. HECH QACHON 'hujjatga ko'ra', 'aytilganidek' yozmang. Kirish so'zlarsiz, ortiqchasiz, takrorlarsiz. Faqat yakuniy to'g'ri javob.",
+        "en": "STRICT RULES: Be as concise as the answer requires. NEVER show sources, citations, page numbers, document names. NEVER write 'according to', 'as stated in', 'based on'. No introductions, no filler, no repetition. Only the final correct answer.",
+        "ru": "СТРОГИЕ ПРАВИЛА: Будьте настолько краткими, насколько требует ответ. НИКОГДА не указывайте источники, цитаты, номера страниц, названия документов. НИКОГДА не пишите 'согласно документу', 'как указано в', 'на основании'. Без вступлений, без лишних слов, без повторений. Только итоговый правильный ответ.",
+        "uz": "QATTIY QOIDALAR: Javob talab qilgancha qisqa bo'ling. HECH QACHON manbalar, iqtiboslar, sahifa raqamlari, hujjat nomlari ko'rsatmang. HECH QACHON 'hujjatga ko'ra', 'aytilganidek' yozmang. Kirish so'zlarsiz, ortiqchasiz, takrorlarsiz. Faqat yakuniy to'g'ri javob.",
     }
     prompt_parts.append(output_rules.get(detected_language, output_rules["en"]))
 
@@ -290,4 +286,23 @@ def create_dynamic_system_prompt(
         }
         prompt_parts.append(style_instructions.get(detected_language, style_instructions["en"]))
 
-    return " ".join(prompt_parts)
+    # Format instruction placed LAST — highest weight for LLMs, overrides any prior length hints.
+    # Also add specificity cue based on query complexity.
+    format_instruction = get_language_specific_instructions(detected_language, query_type)
+    if query_type in ("factual", "definition"):
+        specificity_cue = {
+            "en": "Give the specific value, date, or rule from the document — not a generic summary.",
+            "ru": "Укажите конкретное значение, дату или правило из документа — не общее резюме.",
+            "uz": "Hujjatdan aniq qiymat, sana yoki qoidani keltiring — umumiy xulosa emas.",
+        }
+        format_instruction += " " + specificity_cue.get(detected_language, specificity_cue["en"])
+    elif query_type in ("analytical", "comparison"):
+        completeness_cue = {
+            "en": "Summarize all key points and conditions; do not omit important details.",
+            "ru": "Суммируйте все ключевые пункты и условия; не упускайте важных деталей.",
+            "uz": "Barcha asosiy fikrlar va shartlarni umumlashtiring; muhim tafsilotlarni o'tkazib yubormang.",
+        }
+        format_instruction += " " + completeness_cue.get(detected_language, completeness_cue["en"])
+    prompt_parts.append(f"## Response Format\n{format_instruction}")
+
+    return "\n\n".join(prompt_parts)

@@ -1,14 +1,16 @@
 from functools import lru_cache
 
 from src.config.settings import get_settings
+from src.services.cache import SemanticCache
 from src.services.embedding import LangChainDenseAdapter
+from src.services.llm import create_llm
 from src.services.minio_client import MinioService
 from src.services.qdrant_client import QdrantService
-from src.services.llm import create_llm
 from src.ingestion.pipeline import IngestionPipeline
 
-# Cache for async services
+# Singletons for async services
 _qdrant_instance: QdrantService | None = None
+_cache_instance: SemanticCache | None = None
 
 
 @lru_cache
@@ -32,6 +34,14 @@ async def get_qdrant_service() -> QdrantService:
 @lru_cache
 def get_llm():
     return create_llm(get_settings())
+
+
+def get_cache() -> SemanticCache:
+    """Singleton SemanticCache for use outside the agent graph (e.g., document invalidation)."""
+    global _cache_instance
+    if _cache_instance is None:
+        _cache_instance = SemanticCache(get_settings())
+    return _cache_instance
 
 
 async def get_ingestion_pipeline() -> IngestionPipeline:

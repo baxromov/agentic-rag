@@ -1,7 +1,7 @@
 import json
 import time
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src.agent.guardrails import GuardrailViolation, validate_input
 from src.api.auth_dependencies import get_current_user
+from src.api.limiter import limiter
 from src.config.settings import get_settings
 from src.models.schemas import ChatEvent
 from src.services.graph_runner import get_graph
@@ -72,7 +73,12 @@ def _make_config(session_id: str) -> dict:
 
 
 @router.post("/chat/stream")
-async def stream_chat(request: StreamChatRequest, user: dict = Depends(get_current_user)):
+@limiter.limit(get_settings().rate_limit_chat)
+async def stream_chat(
+    request: Request,
+    body: StreamChatRequest,
+    user: dict = Depends(get_current_user),
+):
     """Streaming chat endpoint using SSE (Server-Sent Events)."""
     settings = get_settings()
     graph = get_graph()
@@ -81,9 +87,9 @@ async def stream_chat(request: StreamChatRequest, user: dict = Depends(get_curre
     async def event_generator():
         try:
             request_start = time.time()
-            query = request.query
-            filters = request.filters
-            runtime_context = request.context or {}
+            query = body.query
+            filters = body.filters
+            runtime_context = body.context or {}
 
             # Inject guardrail settings from MongoDB into runtime_context
             try:
@@ -126,7 +132,7 @@ async def stream_chat(request: StreamChatRequest, user: dict = Depends(get_curre
                 return
 
             # Resolve session
-            session_id = request.session_id or request.thread_id
+            session_id = body.session_id or body.thread_id
             is_new_session = False
 
             if session_id:

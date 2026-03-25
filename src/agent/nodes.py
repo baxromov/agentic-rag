@@ -362,7 +362,30 @@ def make_query_prepare_node(llm: BaseChatModel):
     return query_prepare
 
 
-def make_retrieve_node(qdrant: QdrantService):
+async def _generate_hyde_query(llm: BaseChatModel, query: str) -> str:
+    """Generate a hypothetical answer to augment retrieval (HyDE pattern).
+
+    Creates a short, domain-appropriate answer as if we had the relevant document.
+    This hypothetical text is then used as an additional search query to find
+    documents that 'look like' a good answer rather than 'look like' the question.
+    """
+    messages = [
+        SystemMessage(content=(
+            "Write a brief factual answer (2-3 sentences) to the following question "
+            "as if you had access to the relevant HR policy document. "
+            "Be specific and use domain-appropriate language. "
+            "Do not mention that you are generating a hypothetical answer."
+        )),
+        HumanMessage(content=query),
+    ]
+    try:
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=5.0)
+        return response.content[:500]
+    except Exception:
+        return ""  # HyDE failure is non-fatal
+
+
+def make_retrieve_node(qdrant: QdrantService, llm: BaseChatModel | None = None):
     """Create a retrieve node with parallel hybrid search via QdrantVectorStore."""
 
     async def retrieve(state: AgentState, config: RunnableConfig) -> dict:
@@ -377,6 +400,8 @@ def make_retrieve_node(qdrant: QdrantService):
         search_queries = search_queries[:3]
 
         with create_span("retrieve", input={"query": query, "num_queries": len(search_queries)}) as span:
+            settings = get_settings()
+
             # Detect query language (or use user preference)
             language_pref = runtime_context.get("language_preference", "auto")
             if language_pref == "auto":
@@ -395,32 +420,52 @@ def make_retrieve_node(qdrant: QdrantService):
                 qdrant.hybrid_search(query=q, filters=effective_filters)
                 for q in search_queries
             ]
-            search_results = await asyncio.gather(*search_coros, return_exceptions=True)
 
-            # Merge and deduplicate by point ID (keep highest score)
+            # HyDE: concurrently generate hypothetical answer while searching
+            if llm is not None and settings.hyde_enabled:
+                *search_results_raw, hyde_query = await asyncio.gather(
+                    *search_coros,
+                    _generate_hyde_query(llm, query),
+                    return_exceptions=True,
+                )
+                # Run HyDE search with the hypothetical answer text
+                if isinstance(hyde_query, str) and hyde_query:
+                    hyde_result = await qdrant.hybrid_search(
+                        query=hyde_query, filters=effective_filters
+                    )
+                    search_results_raw.append(hyde_result)
+                search_results = search_results_raw
+            else:
+                search_results = await asyncio.gather(*search_coros, return_exceptions=True)
+
+            # Merge and deduplicate by point ID — sum scores across queries to reward
+            # docs that surface in multiple sub-queries (soft vote fusion).
+            # Also track top-2 per sub-query to guarantee they survive grade_documents.
             all_docs: dict[str, dict] = {}
+            per_query_top_ids: set[str] = set()
+
             for result in search_results:
                 if isinstance(result, Exception):
                     print(f"Search query error: {result}")
                     continue
-                for doc in result:
+                for rank, doc in enumerate(result):
                     doc_id = doc.get("id", "")
-                    if doc_id not in all_docs or doc["score"] > all_docs[doc_id]["score"]:
-                        all_docs[doc_id] = doc
+                    if rank < 2:
+                        per_query_top_ids.add(doc_id)  # Guarantee top-2 from each sub-query
+                    if doc_id not in all_docs:
+                        all_docs[doc_id] = doc.copy()
+                    else:
+                        # Accumulate scores — multi-query agreement boosts relevance
+                        all_docs[doc_id]["score"] = all_docs[doc_id]["score"] + doc["score"]
+
+            # Mark guaranteed docs so grade_documents can preserve them
+            for doc_id in per_query_top_ids:
+                if doc_id in all_docs:
+                    all_docs[doc_id]["_sub_query_top"] = True
 
             documents = list(all_docs.values())
 
-            # Post-process: boost scores for same-language documents
-            if detected_language and detected_language != "unknown":
-                for doc in documents:
-                    doc_lang = doc.get("metadata", {}).get("language", "")
-                    if doc_lang == detected_language:
-                        doc["score"] = min(doc["score"] * 1.25, 1.0)
-                        doc["language_match"] = True
-                    else:
-                        doc["language_match"] = False
-
-            # Sort by score
+            # Sort by score (language boost removed — reranker applies its own +15% correction)
             documents.sort(key=lambda d: d["score"], reverse=True)
 
             # Log retrieval metrics
@@ -503,12 +548,29 @@ _CLARIFICATION_HINTS = {
 }
 
 
+def _compute_autocut(scores: list[float], gap_threshold: float = 0.15) -> float:
+    """Find a natural score cutoff by detecting the largest gap in sorted scores.
+
+    Returns the score of the document just after the largest gap, so everything
+    above that score is kept. Falls back to 0.0 (include everything) if no
+    significant gap is found.
+    """
+    if len(scores) < 2:
+        return 0.0
+    gaps = [(scores[i] - scores[i + 1], i) for i in range(len(scores) - 1)]
+    max_gap, max_gap_idx = max(gaps, key=lambda x: x[0])
+    if max_gap >= gap_threshold:
+        return scores[max_gap_idx + 1]
+    return 0.0
+
+
 def make_grade_documents_node():
     """Create a node that filters documents by reranker score threshold (no LLM call).
 
     The cross-encoder reranker already scores relevance — using an LLM to re-grade
     is redundant and adds 2-4s latency. Instead, filter by reranker score threshold.
 
+    Uses autocut to detect natural score gaps before falling back to fixed threshold.
     If all documents score very low AND we already retried, triggers HITL clarification.
     """
 
@@ -528,16 +590,35 @@ def make_grade_documents_node():
         initial_count = len(documents)
 
         with create_span("grade_documents", input={"doc_count": initial_count}) as span:
-            # Filter by reranker score threshold (sigmoid-normalized, range 0-1)
-            # >0.7 = clearly relevant, 0.4-0.7 = maybe relevant, <0.4 = likely irrelevant
-            score_threshold = 0.30
-            filtered = [doc for doc in documents if doc.get("score", 0) >= score_threshold]
+            settings = get_settings()
 
-            # Always keep at least top 3 documents even if below threshold
-            if len(filtered) < 3 and len(documents) >= 3:
-                filtered = documents[:3]
+            # Adaptive autocut: find natural score gap before using fixed floor
+            sorted_scores = sorted(
+                [doc.get("score", 0) for doc in documents], reverse=True
+            )
+            autocut_threshold = _compute_autocut(sorted_scores, settings.autocut_gap_threshold)
+            # Use whichever threshold is more conservative (lower = keeps more docs)
+            effective_threshold = min(autocut_threshold, 0.30)
+
+            filtered = [doc for doc in documents if doc.get("score", 0) >= effective_threshold]
+
+            # Also preserve sub-query top-2 guaranteed docs that may have been filtered
+            guaranteed = [d for d in documents if d.get("_sub_query_top") and d not in filtered]
+            filtered.extend(guaranteed)
+
+            # Always keep at least top 5 documents — reranker ordering is more reliable
+            # than absolute score thresholds, so preserve more candidates for generation.
+            if len(filtered) < 5 and len(documents) >= 5:
+                filtered = documents[:5]
+            elif len(filtered) < len(documents) and len(documents) < 5:
+                filtered = documents  # Keep all if fewer than 5 available
             elif not filtered and documents:
                 filtered = documents[:1]
+
+            # Re-sort filtered set by score and clean internal markers
+            filtered.sort(key=lambda d: d.get("score", 0), reverse=True)
+            for d in filtered:
+                d.pop("_sub_query_top", None)
 
             # HITL: if best doc scores below threshold after a retry, ask for clarification.
             # Lower threshold for ru/uz because jina-reranker has English bias.
@@ -545,7 +626,9 @@ def make_grade_documents_node():
             needs_clarification = False
             clarification_question = None
             query_lang = state.get("query_language") or "en"
-            hitl_threshold = 0.35 if query_lang in ("ru", "uz") else 0.50
+            # Calibrated thresholds: 0.50 was too aggressive for niche HR queries;
+            # reranker's English bias is corrected in the reranker (+15%), so lower here.
+            hitl_threshold = 0.30 if query_lang in ("ru", "uz") else 0.40
 
             if max_score < hitl_threshold and retries >= 1:
                 lang = query_lang if query_lang in _CLARIFICATION_TEMPLATES else "en"
@@ -577,8 +660,33 @@ def make_grade_documents_node():
     return grade_documents
 
 
-def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
-    """Create a node that generates an answer from relevant documents."""
+def _make_compressor(llm: BaseChatModel, query: str):
+    """Return an async compressor callable for context_manager budget overflow."""
+
+    async def compressor(text: str, _query: str, target_chars: int) -> str:
+        target_words = max(target_chars // 5, 30)
+        messages = [
+            SystemMessage(content=(
+                f"Summarize the following document excerpt in approximately {target_words} words, "
+                f"preserving all facts relevant to this query: {_query}"
+            )),
+            HumanMessage(content=text[:2000]),
+        ]
+        try:
+            response = await asyncio.wait_for(llm.ainvoke(messages), timeout=10.0)
+            return response.content
+        except Exception:
+            return text[:target_chars] + "..."  # Fallback to truncation
+
+    return compressor
+
+
+def make_generate_node(llm: BaseChatModel, model_name: str | None = None, cache=None):
+    """Create a node that generates an answer from relevant documents.
+
+    Args:
+        cache: Optional SemanticCache instance for Redis-backed response caching.
+    """
 
     async def generate(state: AgentState, config: RunnableConfig) -> dict:
         start_time = time.time()
@@ -591,6 +699,39 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
         # Get model name from LLM object or use provided one
         llm_model_name = model_name or getattr(llm, "model_name", None) or getattr(llm, "model", "gpt-4")
 
+        # No-answer path: after exhausting all retries with very low quality results,
+        # return a canned "not found" response instead of hallucinating.
+        settings_obj = get_settings()
+        retries = state.get("retries", 0)
+        if retries >= settings_obj.max_retries and documents:
+            max_doc_score = max((d.get("score", 0) for d in documents), default=0)
+            if max_doc_score < 0.15:
+                query_lang = state.get("query_language") or detect_language(query)
+                _no_answer = {
+                    "uz": "Kechirasiz, bu savol bo'yicha tegishli ma'lumot topilmadi. Savolingizni aniqroq ifodalashga harakat qiling.",
+                    "ru": "К сожалению, по данному вопросу не найдено релевантной информации. Попробуйте переформулировать вопрос.",
+                    "en": "Sorry, I could not find relevant information for this question. Please try rephrasing your query.",
+                }
+                lang = query_lang if query_lang in _no_answer else "en"
+                answer = _no_answer[lang]
+                updated_messages = conversation_history + [AIMessage(content=answer)]
+                return {
+                    "generation": answer,
+                    "messages": updated_messages,
+                    "context_metadata": {"no_answer": True, "cache_hit": False},
+                }
+
+        # Cache lookup — check before building prompt or calling LLM
+        if cache is not None:
+            cached_answer = await cache.get(query, documents)
+            if cached_answer:
+                updated_messages = conversation_history + [AIMessage(content=cached_answer)]
+                return {
+                    "generation": cached_answer,
+                    "messages": updated_messages,
+                    "context_metadata": {"cache_hit": True},
+                }
+
         # Create dynamic system prompt based on query, documents, and runtime context
         # This adapts to language, query type, expertise level, and document characteristics
         system_prompt = create_dynamic_system_prompt(
@@ -600,12 +741,13 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
         )
 
         # Use smart context window management to fit documents
-        context, context_metadata = fit_documents_to_budget(
+        context, context_metadata = await fit_documents_to_budget(
             documents=documents,
             query=query,
             conversation_history=conversation_history,
             model_name=llm_model_name,
             system_prompt=system_prompt,
+            compressor=_make_compressor(llm, query),
         )
 
         # Build messages with conversation history
@@ -646,12 +788,17 @@ def make_generate_node(llm: BaseChatModel, model_name: str | None = None):
             final_answer = validation_result["generation"]
             guardrail_warnings = [f"Guardrail error: {str(e)}"]
 
+        # Store in cache before returning
+        if cache is not None:
+            await cache.set(query, documents, final_answer)
+
         # Update conversation history with AI response
         updated_messages = conversation_history + [AIMessage(content=final_answer)]
 
         # Merge context metadata with validation and guardrail metadata
         combined_metadata = {
             **(context_metadata or {}),
+            "cache_hit": False,
             "validation": {
                 "confidence": validation_result["confidence"],
                 "has_citations": validation_result["has_citations"],

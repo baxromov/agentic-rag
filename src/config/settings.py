@@ -53,13 +53,13 @@ class Settings(BaseSettings):
 
     # -- Chunking --
     chunk_size: int = 500
-    chunk_overlap: int = 100
+    chunk_overlap: int = 150  # Raised from 100 — 30% overlap prevents boundary concept splits
     parent_chunk_size: int = 2000
 
     # -- Retrieval --
-    retrieval_top_k: int = 15
-    retrieval_prefetch_limit: int = 30
-    rerank_top_k: int = 7
+    retrieval_top_k: int = 25  # Raised from 15 — larger pool improves recall before reranking
+    retrieval_prefetch_limit: int = 50
+    rerank_top_k: int = 10  # Raised from 7 — covers multi-part questions better
     rrf_k: int = 40
 
     # -- Redis --
@@ -90,6 +90,23 @@ class Settings(BaseSettings):
 
     # -- Agent --
     max_retries: int = 3
+
+    # -- MMR (Maximal Marginal Relevance) --
+    mmr_lambda: float = 0.85  # Raised from 0.7 — HR domain is focused, favor relevance over diversity
+
+    # -- Autocut --
+    autocut_gap_threshold: float = 0.10  # Lowered from 0.15 — less aggressive pruning
+
+    # -- Cache --
+    cache_enabled: bool = True
+    cache_ttl_seconds: int = 3600  # 1 hour
+
+    # -- Rate Limiting --
+    rate_limit_chat: str = "20/minute"
+    rate_limit_upload: str = "10/minute"
+
+    # -- HyDE (query-time hypothetical document embedding) --
+    hyde_enabled: bool = True
 
 
 @lru_cache

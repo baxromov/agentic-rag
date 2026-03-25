@@ -1,4 +1,5 @@
 """Context window management for LLM token limits."""
+from collections.abc import Awaitable
 from typing import Callable
 
 from langchain_core.messages import BaseMessage
@@ -71,20 +72,25 @@ def create_token_counter(model_name: str) -> Callable[[str], int]:
         except Exception:
             pass
 
-    # Fallback: rough heuristic (1 token ≈ 4 characters for English)
-    # For multilingual content, this is conservative
+    # Fallback: rough heuristic (1 token ≈ 4 characters for English, ~3 for Cyrillic)
     def heuristic_counter(text: str) -> int:
+        if not text:
+            return 1
+        cyrillic_chars = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
+        if cyrillic_chars / len(text) > 0.3:
+            return max(len(text) // 3, 1)  # Cyrillic encodes denser
         return max(len(text) // 4, 1)
 
     return heuristic_counter
 
 
-def fit_documents_to_budget(
+async def fit_documents_to_budget(
     documents: list[dict],
     query: str,
     conversation_history: list[BaseMessage],
     model_name: str,
     system_prompt: str = "",
+    compressor: Callable[[str, str, int], Awaitable[str]] | None = None,
 ) -> tuple[str, dict]:
     """
     Prioritize and truncate documents to fit within token budget.
@@ -127,17 +133,11 @@ def fit_documents_to_budget(
     included_docs = 0
 
     for doc in sorted_docs:
-        # Format document with metadata
-        page_info = ""
-        meta = doc.get("metadata", {})
-        if meta.get("page_number"):
-            page_info = f" (page {meta['page_number']})"
-        elif meta.get("page_start"):
-            page_info = f" (pages {meta['page_start']}-{meta.get('page_end', '?')})"
-
         # Prefer parent_text (richer context) over child text for LLM generation
+        meta = doc.get("metadata", {})
         doc_text = meta.get("parent_text") or doc.get("text", "")
-        formatted_doc = f"[{included_docs + 1}]{page_info}: {doc_text}"
+        # Omit page markers from LLM context — prompt forbids showing citations/page numbers
+        formatted_doc = f"[{included_docs + 1}]: {doc_text}"
 
         doc_tokens = tokenizer(formatted_doc)
 
@@ -147,12 +147,14 @@ def fit_documents_to_budget(
             used_tokens += doc_tokens
             included_docs += 1
         else:
-            # Try to fit a truncated version if this is an important doc
+            # Try to fit a truncated/compressed version if this is the first doc
             if included_docs == 0:  # Always include at least one doc
-                # Truncate to fit
                 max_chars = available_for_docs * 4  # Rough conversion back to chars
-                truncated_text = doc_text[:max_chars] + "..."
-                formatted_doc = f"[{included_docs + 1}]{page_info}: {truncated_text}"
+                if compressor is not None:
+                    compressed_text = await compressor(doc_text, query, max_chars)
+                else:
+                    compressed_text = doc_text[:max_chars] + "..."
+                formatted_doc = f"[{included_docs + 1}]: {compressed_text}"
                 context_parts.append(formatted_doc)
                 used_tokens = tokenizer(formatted_doc)
                 included_docs = 1

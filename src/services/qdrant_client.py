@@ -2,7 +2,7 @@ import uuid
 
 from langchain_core.documents import Document
 from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
-from qdrant_client import AsyncQdrantClient, models
+from qdrant_client import AsyncQdrantClient, QdrantClient, models
 
 from src.config.settings import Settings
 from src.services.embedding import LangChainDenseAdapter
@@ -13,7 +13,8 @@ class QdrantService:
 
     def __init__(self, settings: Settings) -> None:
         """Initialize service configuration. Use create() classmethod for async initialization."""
-        self._client = None
+        self._client = None       # AsyncQdrantClient — for direct async ops
+        self._sync_client = None  # QdrantClient (sync) — for QdrantVectorStore
         self._vector_store = None
         self._collection = settings.qdrant_collection
         self._dim = settings.embedding_dim
@@ -27,9 +28,13 @@ class QdrantService:
         """Async factory method to create and initialize QdrantService."""
         service = cls(settings)
         service._client = AsyncQdrantClient(url=service._url)
+        service._sync_client = QdrantClient(url=service._url)
         await service._ensure_collection()
+        # QdrantVectorStore requires a sync QdrantClient — it calls client.upsert()
+        # synchronously inside run_in_executor. Using AsyncQdrantClient here causes
+        # upsert() to return an unawaited coroutine and nothing gets indexed.
         service._vector_store = QdrantVectorStore(
-            client=service._client,
+            client=service._sync_client,
             collection_name=service._collection,
             embedding=dense_embeddings,
             sparse_embedding=FastEmbedSparse(model_name=settings.sparse_embedding_model),
@@ -38,6 +43,7 @@ class QdrantService:
             sparse_vector_name="sparse",
             content_payload_key="text",
             metadata_payload_key="metadata",
+            validate_collection_config=False,
         )
         return service
 
@@ -249,9 +255,11 @@ class QdrantService:
         return result[0]  # Return just the points, not the next offset
 
     async def close(self) -> None:
-        """Close the async client connection."""
+        """Close client connections."""
         if self._client:
             await self._client.close()
+        if self._sync_client:
+            self._sync_client.close()
 
     @staticmethod
     def _build_filter(filters: dict) -> models.Filter:

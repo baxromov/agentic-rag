@@ -28,6 +28,7 @@ from src.services.embedding import LangChainDenseAdapter
 from src.services.llm import create_llm
 from src.services.qdrant_client import QdrantService
 from src.services.reranker import RerankerService
+from src.services.cache import SemanticCache
 from src.utils.telemetry import logger
 
 
@@ -100,13 +101,14 @@ def build_graph(
     workflow.add_node("general_response", make_general_response_node(llm))
 
     # Add nodes — RAG pipeline
+    cache = SemanticCache(settings) if settings.cache_enabled else None
     workflow.add_node("query_prepare", make_query_prepare_node(llm))
-    workflow.add_node("retrieve", make_retrieve_node(qdrant))
+    workflow.add_node("retrieve", make_retrieve_node(qdrant, llm=llm))
     workflow.add_node("rerank", make_rerank_node(reranker))
     workflow.add_node("grade_documents", make_grade_documents_node())
     workflow.add_node("human_feedback", make_human_feedback_node())
     workflow.add_node("expand_context", make_expand_context_node(qdrant))
-    workflow.add_node("generate", make_generate_node(llm, model_name))
+    workflow.add_node("generate", make_generate_node(llm, model_name, cache=cache))
     workflow.add_node("rewrite_query", make_rewrite_query_node(llm))
 
     # Define edges — input guardrail as entry point

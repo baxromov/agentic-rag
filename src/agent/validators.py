@@ -44,10 +44,8 @@ def validate_generation(response: str, documents: list[dict], query: str) -> dic
     # 2. Calculate confidence based on document overlap
     confidence = calculate_document_overlap_confidence(response, documents)
 
-    # 3. Check for citation patterns
+    # 3. Check for citation patterns (informational only — prompt forbids explicit citations)
     has_citations = check_citations(response)
-    if not has_citations and documents:
-        warnings.append("No citations found despite having source documents")
 
     # 4. Detect potential contradictions (basic check)
     contradicts_sources = detect_contradictions(response, documents)
@@ -55,10 +53,10 @@ def validate_generation(response: str, documents: list[dict], query: str) -> dic
         warnings.append("Response may contradict source documents")
 
     # 5. Overall validation
+    # Citations are NOT required — the generation prompt explicitly forbids showing them.
     validation_passed = (
         confidence > 0.3
         and not contradicts_sources
-        and (has_citations or not documents)  # Citations not required if no docs
     )
 
     return {
@@ -108,8 +106,8 @@ def calculate_document_overlap_confidence(response: str, documents: list[dict]) 
     # Confidence = percentage of response words found in documents
     overlap_ratio = overlap / total_response_words if total_response_words > 0 else 0.0
 
-    # Scale to 0-1 range (30%+ overlap = high confidence)
-    confidence = min(overlap_ratio / 0.3, 1.0)
+    # Scale to 0-1 range (15%+ overlap = high confidence for concise HR answers)
+    confidence = min(overlap_ratio / 0.15, 1.0)
 
     return round(confidence, 2)
 
