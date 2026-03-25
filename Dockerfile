@@ -77,4 +77,27 @@ COPY --from=frontend-builder /frontend/dist /app/frontend/dist
 EXPOSE 8000
 
 ENV PYTHONHTTPSVERIFY=0
-CMD ["python", "-c", "import ssl; ssl._create_default_https_context = ssl._create_unverified_context; import uvicorn; uvicorn.run('src.api.app:app', host='0.0.0.0', port=8000)"]
+
+# Disable SSL verification globally for corporate network (same as Dockerfile.langgraph)
+COPY <<'EOF' /usr/local/lib/python3.12/site-packages/sitecustomize.py
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Patch httpx to disable SSL verification by default
+import httpx
+_orig_async_init = httpx.AsyncClient.__init__
+_orig_sync_init = httpx.Client.__init__
+
+def _patched_async_init(self, *args, **kwargs):
+    kwargs.setdefault("verify", False)
+    _orig_async_init(self, *args, **kwargs)
+
+def _patched_sync_init(self, *args, **kwargs):
+    kwargs.setdefault("verify", False)
+    _orig_sync_init(self, *args, **kwargs)
+
+httpx.AsyncClient.__init__ = _patched_async_init
+httpx.Client.__init__ = _patched_sync_init
+EOF
+
+CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
