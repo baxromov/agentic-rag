@@ -5,6 +5,8 @@ Uses LangChain's .with_structured_output() for LLM-based safety checks:
 - Output safety: constitutional-style validation (identity leakage, off-character responses)
 """
 
+import re
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -119,6 +121,11 @@ _OUTPUT_SAFETY_PROMPT = ChatPromptTemplate.from_messages([
      "(violation: off_character)\n"
      "4. SENSITIVE INFO: Response contains API keys, passwords, internal system details "
      "(violation: sensitive_info)\n\n"
+     "IMPORTANT — DO NOT flag as a violation:\n"
+     "- Factual information about companies, legal entities, or organizations retrieved from "
+     "uploaded documents (registration data, IFUT codes, addresses, phone numbers, etc.)\n"
+     "- Responses that present document content and then note that HR policy is the primary scope\n"
+     "- Any response that answers from retrieved documents, even if the topic is not strictly HR\n\n"
      "If the response is clean, set safe=true and violation='none'.\n"
      "If ANY violation is found, set safe=false with the violation type."),
     ("human",
@@ -126,6 +133,50 @@ _OUTPUT_SAFETY_PROMPT = ChatPromptTemplate.from_messages([
      "Assistant response: {response}\n\n"
      "Review this response:"),
 ])
+
+
+# ---------------------------------------------------------------------------
+# Fallback text parsers (for LLMs that don't reliably return JSON)
+# ---------------------------------------------------------------------------
+
+_UNSAFE_REASONS = {"identity_probe", "jailbreak", "prompt_injection", "manipulation"}
+
+def _parse_input_safety_text(text: str) -> InputSafetyResult | None:
+    """Parse free-text LLM output into InputSafetyResult as a fallback."""
+    t = text.lower().strip()
+
+    # Detect any explicit unsafe reason first
+    for reason in _UNSAFE_REASONS:
+        if reason.replace("_", " ") in t or reason in t:
+            return InputSafetyResult(safe=False, reason=reason)
+
+    # Detect explicit unsafe flags
+    if re.search(r"safe\s*[=:]\s*false|unsafe|not safe|block", t):
+        return InputSafetyResult(safe=False, reason="jailbreak")
+
+    # Detect explicit safe flags — covers "SAFE", "SAFE: true", "safe=true", "**SAFE**"
+    if re.search(r"\bsafe\b", t):
+        return InputSafetyResult(safe=True, reason="safe")
+
+    return None
+
+
+def _parse_output_safety_text(text: str) -> OutputSafetyResult | None:
+    """Parse free-text LLM output into OutputSafetyResult as a fallback."""
+    t = text.lower().strip()
+
+    violations = ["identity_leak", "provider_mention", "off_character", "sensitive_info"]
+    for v in violations:
+        if v.replace("_", " ") in t or v in t:
+            return OutputSafetyResult(safe=False, violation=v)
+
+    if re.search(r"safe\s*[=:]\s*false|unsafe|not safe|violation", t):
+        return OutputSafetyResult(safe=False, violation="off_character")
+
+    if re.search(r"\bsafe\b", t):
+        return OutputSafetyResult(safe=True, violation="none")
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -137,8 +188,10 @@ def make_input_safety_node(llm: BaseChatModel):
 
     Uses the LLM to classify whether input is safe, catching subtle attacks
     that regex-based detection misses (identity probing, sophisticated jailbreaks).
+    Falls back to text parsing when the LLM returns free-text instead of JSON.
     """
-    safety_chain = _INPUT_SAFETY_PROMPT | llm.with_structured_output(InputSafetyResult)
+    structured_chain = _INPUT_SAFETY_PROMPT | llm.with_structured_output(InputSafetyResult)
+    raw_chain = _INPUT_SAFETY_PROMPT | llm
 
     async def input_safety(state: AgentState, config: RunnableConfig) -> dict:
         # Check if input safety is disabled via runtime_context
@@ -147,28 +200,31 @@ def make_input_safety_node(llm: BaseChatModel):
             return {"guardrail_blocked": False}
 
         query = state["query"]
+        result: InputSafetyResult | None = None
 
         try:
-            result: InputSafetyResult = await safety_chain.ainvoke(
-                {"query": query}, config=config
-            )
+            result = await structured_chain.ainvoke({"query": query}, config=config)
+        except Exception:
+            # Structured output failed — try raw text fallback
+            try:
+                raw = await raw_chain.ainvoke({"query": query}, config=config)
+                raw_text = raw.content if hasattr(raw, "content") else str(raw)
+                result = _parse_input_safety_text(raw_text)
+            except Exception:
+                pass  # fail-open below
 
-            if not result.safe:
-                lang = detect_language(query)
-                reason = result.reason if result.reason in _BLOCKED_RESPONSES else "jailbreak"
-                responses = _BLOCKED_RESPONSES.get(reason, _BLOCKED_RESPONSES["jailbreak"])
-                blocked_msg = responses.get(lang, responses["en"])
+        if result is not None and not result.safe:
+            lang = detect_language(query)
+            reason = result.reason if result.reason in _BLOCKED_RESPONSES else "jailbreak"
+            responses = _BLOCKED_RESPONSES.get(reason, _BLOCKED_RESPONSES["jailbreak"])
+            blocked_msg = responses.get(lang, responses["en"])
 
-                return {
-                    "guardrail_blocked": True,
-                    "generation": blocked_msg,
-                    "messages": state.get("messages", []) + [AIMessage(content=blocked_msg)],
-                    "documents": [],
-                }
-
-        except Exception as e:
-            # If safety check fails, allow through (fail-open for availability)
-            print(f"Input safety check error: {e}")
+            return {
+                "guardrail_blocked": True,
+                "generation": blocked_msg,
+                "messages": state.get("messages", []) + [AIMessage(content=blocked_msg)],
+                "documents": [],
+            }
 
         return {"guardrail_blocked": False}
 
@@ -179,9 +235,10 @@ def make_output_safety_node(llm: BaseChatModel):
     """Create an output guardrail node using LangChain constitutional-style validation.
 
     Validates LLM responses against safety principles before returning to user.
-    This is the LangGraph-recommended replacement for the deprecated ConstitutionalChain.
+    Falls back to text parsing when the LLM returns free-text instead of JSON.
     """
-    safety_chain = _OUTPUT_SAFETY_PROMPT | llm.with_structured_output(OutputSafetyResult)
+    structured_chain = _OUTPUT_SAFETY_PROMPT | llm.with_structured_output(OutputSafetyResult)
+    raw_chain = _OUTPUT_SAFETY_PROMPT | llm
 
     _SAFE_FALLBACK = {
         "uz": "Men Ipoteka Bank HR yordamchisiman. Kompaniya siyosatlari bo'yicha qanday yordam bera olaman?",
@@ -201,29 +258,31 @@ def make_output_safety_node(llm: BaseChatModel):
         if not generation:
             return {}
 
+        result: OutputSafetyResult | None = None
+        invoke_args = {"query": query, "response": generation}
+
         try:
-            result: OutputSafetyResult = await safety_chain.ainvoke(
-                {"query": query, "response": generation}, config=config
-            )
+            result = await structured_chain.ainvoke(invoke_args, config=config)
+        except Exception:
+            try:
+                raw = await raw_chain.ainvoke(invoke_args, config=config)
+                raw_text = raw.content if hasattr(raw, "content") else str(raw)
+                result = _parse_output_safety_text(raw_text)
+            except Exception:
+                pass  # fail-open
 
-            if not result.safe:
-                lang = detect_language(query)
-                safe_response = _SAFE_FALLBACK.get(lang, _SAFE_FALLBACK["en"])
+        if result is not None and not result.safe:
+            lang = detect_language(query)
+            safe_response = _SAFE_FALLBACK.get(lang, _SAFE_FALLBACK["en"])
 
-                # Replace the generation with a safe fallback
-                messages = state.get("messages", [])
-                # Replace last AI message if present
-                if messages and hasattr(messages[-1], "content"):
-                    messages = messages[:-1] + [AIMessage(content=safe_response)]
+            messages = state.get("messages", [])
+            if messages and hasattr(messages[-1], "content"):
+                messages = messages[:-1] + [AIMessage(content=safe_response)]
 
-                return {
-                    "generation": safe_response,
-                    "messages": messages,
-                }
-
-        except Exception as e:
-            # If safety check fails, allow through (fail-open)
-            print(f"Output safety check error: {e}")
+            return {
+                "generation": safe_response,
+                "messages": messages,
+            }
 
         return {}
 
