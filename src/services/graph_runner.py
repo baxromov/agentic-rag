@@ -28,6 +28,7 @@ async def init_graph_runner():
     # Reuse the same MongoDB instance used for auth/sessions
     _client = MongoClient(settings.mongodb_url)
     _checkpointer = MongoDBSaver(_client, db_name="langgraph")
+    _checkpointer.setup()  # Creates required MongoDB indexes
 
     # Build graph with the persistent checkpointer
     _graph = await create_default_graph(checkpointer=_checkpointer)

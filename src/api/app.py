@@ -1,4 +1,6 @@
+import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -6,7 +8,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi import _rate_limit_exceeded_handler
 
+logger = logging.getLogger(__name__)
+
+from src.api.limiter import limiter
 from src.api.routes import admin, auth, chat, documents, feedback, health, query, sessions
 
 
@@ -56,7 +64,8 @@ async def lifespan(app: FastAPI):
         await init_graph_runner()
         print("Graph runner initialized with MongoDB persistence")
     except Exception as e:
-        print(f"Warning: Could not initialize graph runner: {e}")
+        logger.error("FATAL: Could not initialize graph runner:\n%s", traceback.format_exc())
+        raise
 
     # Ensure MongoDB indexes for session store
     try:
@@ -77,6 +86,11 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # Rate limiting — per-user (JWT sub) or per-IP, backed by Redis
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     # CORS middleware — allows localhost + any LAN IP so the app works on local network
     cors_origins = [
