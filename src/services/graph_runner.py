@@ -1,19 +1,19 @@
 """Direct graph execution with MongoDB persistence.
 
-Uses AsyncMongoDBSaver from langgraph-checkpoint-mongodb as the checkpointer,
-so PostgreSQL is no longer needed — MongoDB handles both session metadata
-and graph state. AsyncMongoDBSaver works with motor (async MongoDB driver)
-and is compatible with both Linux/Mac and Windows asyncio event loops.
+Uses MongoDBSaver from langgraph-checkpoint-mongodb (v0.3+) as the checkpointer.
+MongoDB handles both session metadata and graph state. MongoDBSaver v0.3+ has
+native async methods (aget/aput/etc.) via run_in_executor, and creates indexes
+automatically in __init__ — no separate setup() call needed.
 """
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+from pymongo import MongoClient
+from langgraph.checkpoint.mongodb import MongoDBSaver
 
 from src.agent.graph import create_default_graph
 from src.config.settings import get_settings
 
-_client: AsyncIOMotorClient | None = None
-_checkpointer: AsyncMongoDBSaver | None = None
+_client: MongoClient | None = None
+_checkpointer: MongoDBSaver | None = None
 _graph = None
 
 
@@ -26,10 +26,8 @@ async def init_graph_runner():
 
     settings = get_settings()
 
-    # Async MongoDB client (motor) — works on all platforms including Windows
-    _client = AsyncIOMotorClient(settings.mongodb_url)
-    _checkpointer = AsyncMongoDBSaver(_client, db_name="langgraph")
-    await _checkpointer.asetup()  # Creates required MongoDB indexes
+    _client = MongoClient(settings.mongodb_url)
+    _checkpointer = MongoDBSaver(_client, db_name="langgraph")  # indexes created in __init__
 
     # Build graph with the persistent checkpointer
     _graph = await create_default_graph(checkpointer=_checkpointer)
@@ -49,6 +47,6 @@ def get_graph():
     return _graph
 
 
-def get_checkpointer() -> AsyncMongoDBSaver | None:
-    """Get the AsyncMongoDBSaver checkpointer."""
+def get_checkpointer() -> MongoDBSaver | None:
+    """Get the MongoDBSaver checkpointer."""
     return _checkpointer
