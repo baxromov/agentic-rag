@@ -51,3 +51,6 @@ htmlcov/
 *.pkl
 .cache/
 .agent
+
+# Claude Code
+.claude/
