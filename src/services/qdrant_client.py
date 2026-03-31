@@ -22,13 +22,14 @@ class QdrantService:
         self._top_k = settings.retrieval_top_k
         self._rrf_k = settings.rrf_k
         self._url = settings.qdrant_url
+        self._api_key = settings.qdrant_api_key or None
 
     @classmethod
     async def create(cls, settings: Settings, dense_embeddings: LangChainDenseAdapter) -> "QdrantService":
         """Async factory method to create and initialize QdrantService."""
         service = cls(settings)
-        service._client = AsyncQdrantClient(url=service._url)
-        service._sync_client = QdrantClient(url=service._url)
+        service._client = AsyncQdrantClient(url=service._url, api_key=service._api_key)
+        service._sync_client = QdrantClient(url=service._url, api_key=service._api_key)
         await service._ensure_collection()
         # QdrantVectorStore requires a sync QdrantClient — it calls client.upsert()
         # synchronously inside run_in_executor. Using AsyncQdrantClient here causes

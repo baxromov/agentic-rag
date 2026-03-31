@@ -1,6 +1,7 @@
 from enum import Enum
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
 
     # -- Qdrant --
     qdrant_url: str = "http://qdrant:6333"
+    qdrant_api_key: str = ""
     qdrant_collection: str = "documents"
 
     # -- Embedding (via Ollama) --
@@ -79,6 +81,16 @@ class Settings(BaseSettings):
 
     # -- MongoDB --
     mongodb_url: str = "mongodb://mongodb:27017"
+    mongodb_username: str = ""
+    mongodb_password: str = ""
+    mongodb_db: str = "rag"
+
+    @model_validator(mode="after")
+    def build_mongodb_url(self) -> "Settings":
+        if self.mongodb_username and self.mongodb_password:
+            host = self.mongodb_url.split("@")[-1] if "@" in self.mongodb_url else self.mongodb_url.removeprefix("mongodb://")
+            self.mongodb_url = f"mongodb://{self.mongodb_username}:{self.mongodb_password}@{host}"
+        return self
 
     # -- JWT Auth --
     jwt_secret_key: str = "super-secret-jwt-key-change-in-production"
