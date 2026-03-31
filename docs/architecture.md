@@ -1,424 +1,636 @@
-# Agentic RAG — System Architecture Diagrams
+# Agentic RAG — System Architecture (Ipoteka Bank HR Assistant)
 
-Architecture diagrams for the Ipoteka Bank Agentic RAG system. All diagrams reflect the current codebase state as of the last review.
+> Updated: 2026-03-17
 
 ---
 
-## Diagram 1 — Service Topology (Docker Compose)
-
-All running services, their exposed ports, and inter-service communication paths.
+## 1. Service Topology (Docker Compose)
 
 ```mermaid
 graph TD
-    Browser["Browser"] --> Frontend["Frontend\nReact 19 + Vite 7\n:5173"]
-    Frontend -->|"REST + SSE\nBearer JWT"| API["FastAPI\n:8000"]
-    Frontend -->|"REST"| LangGraphServer["LangGraph Server\n:8123 (legacy)"]
+    subgraph CLIENT["CLIENT LAYER"]
+        Browser["Browser"]
+    end
 
-    API --> MongoDB[(MongoDB 7\nAuth + Sessions\nGraph State\n:27017)]
-    API --> Qdrant[(Qdrant\nVector DB\nHybrid Index\n:6333)]
-    API --> Redis[(Redis 7\nPub/Sub\n:6379)]
-    API --> MinIO[(MinIO\nDocument Storage\nS3-compatible\n:9000 / :9001)]
-    API -->|"HTTP rerank + sparse-embed"| ModelServer["Model Server\njina-reranker-v2\nFastEmbed BM25\n:8080"]
-    API -->|"HTTP embed"| Ollama["Ollama\nnomic-embed-text\n768-dim\n:11434 (host)"]
-    API -->|"API call"| LLMProvider["LLM Provider\nClaude / OpenAI / Ollama\n(configured via LLM_PROVIDER)"]
-    API -->|"optional OTEL"| Langfuse["Langfuse v3\nObservability\n:3000 (disabled by default)"]
+    subgraph FRONTEND["FRONTEND  :5173"]
+        FE["React 19 + TypeScript 5.9\nTailwind v4 + Vite 7\nZustand (appStore, uploadStore,\nsessionStore, authStore)\nSSE consumer + JWT auto-refresh"]
+    end
 
-    LangGraphServer --> MongoDB
-    LangGraphServer --> Qdrant
-    LangGraphServer --> Redis
-    LangGraphServer --> MinIO
-    LangGraphServer --> ModelServer
-    LangGraphServer --> Ollama
+    subgraph BACKEND["BACKEND  :8000"]
+        API["FastAPI (Python 3.12)\nRoutes: auth, admin, chat,\ndocuments, sessions, feedback,\nquery, health\nMiddleware: CORS, SPA fallback"]
+        LG["LangGraph Server\n:8123 → internal :8000\nDirect graph invocation\nAsyncMongoDBSaver checkpointer"]
+    end
 
-    MinIOInit["minio-init\nbucket bootstrap"] --> MinIO
+    subgraph AI["AI / MODEL LAYER"]
+        MS["Model Server\n:8080\njina-reranker-v1-tiny-en\nQdrant/bm25 (sparse embed)\nFastEmbed"]
+        OLLAMA["Ollama (host)\n:11434\nnomic-embed-text-v2-moe\n768-dim dense embeddings\nllama3.1 (default LLM)"]
+        LLM_EXT["External LLM\nClaude claude-sonnet-4-20250514\nOpenAI gpt-4o\n(via HTTPS, SSL bypassed)"]
+        LANGFUSE["Langfuse\n:3000\nObservability / Tracing\n(disabled in compose)"]
+    end
 
-    style Frontend fill:#d5e8d4,stroke:#82b366
-    style API fill:#dae8fc,stroke:#6c8ebf
-    style LangGraphServer fill:#dae8fc,stroke:#6c8ebf
-    style MongoDB fill:#f5f5f5,stroke:#666
-    style Qdrant fill:#f5f5f5,stroke:#666
-    style Redis fill:#fff2cc,stroke:#d6b656
-    style MinIO fill:#f5f5f5,stroke:#666
-    style ModelServer fill:#e1d5e7,stroke:#9673a6
-    style Ollama fill:#e1d5e7,stroke:#9673a6
-    style LLMProvider fill:#f8cecc,stroke:#b85450
-    style Langfuse fill:#ffe6cc,stroke:#d79b00
-    style MinIOInit fill:#f5f5f5,stroke:#999,stroke-dasharray:4
+    subgraph DATA["DATA LAYER"]
+        MONGO["MongoDB 7\n:27017\nchat_sessions\nmessage_feedback\nusers\nlanggraph checkpoints"]
+        QDRANT["Qdrant\n:6333 HTTP\n:6334 gRPC\ncollection: documents\nhybrid: dense(768) + sparse BM25\nRRF fusion k=40"]
+        REDIS["Redis 7-alpine\n:6379\nPub/Sub (LangGraph)\nSession cache"]
+        MINIO["MinIO\n:9000 API\n:9001 Console\nS3-compatible\nOriginal document files\nbucket: documents"]
+    end
+
+    Browser -->|"HTTP/SSE"| FE
+    FE -->|"REST + SSE\nBearer JWT"| API
+    API -->|"graph.ainvoke()\nAsyncMongoDBSaver"| LG
+    API -->|"POST /rerank\nPOST /sparse-embed"| MS
+    API -->|"POST /api/embed\n768-dim"| OLLAMA
+    API -->|"HTTPS (verify=False)\nClaude/OpenAI API"| LLM_EXT
+    API -->|"CRUD sessions\nfeedback, users\ncheckpoints"| MONGO
+    API -->|"hybrid search\nupsert vectors"| QDRANT
+    API -->|"store/get files\nSHA256 dedup"| MINIO
+    LG -->|"Redis pub/sub"| REDIS
+    LG -->|"checkpoint R/W"| MONGO
+    API -.->|"traces (optional)"| LANGFUSE
+
+    style CLIENT fill:#1e293b,stroke:#475569,color:#f1f5f9
+    style FRONTEND fill:#1e3a2f,stroke:#22c55e,color:#f1f5f9
+    style BACKEND fill:#1e2a3a,stroke:#3b82f6,color:#f1f5f9
+    style AI fill:#2a1e3a,stroke:#a855f7,color:#f1f5f9
+    style DATA fill:#2a2a1e,stroke:#eab308,color:#f1f5f9
 ```
-
-**Key notes:**
-- Langfuse is fully configured in `docker-compose.yml` but commented out. Re-enable via `LANGFUSE_ENABLED=true` in `.env`.
-- Ollama runs on the host machine; Docker containers reach it via `host.docker.internal:11434`.
-- LangGraph Server (`:8123`) is a separate container kept for legacy compatibility. The FastAPI backend uses direct graph invocation via `MongoDBSaver` — no langgraph-server dependency for chat.
-- Model Server handles both cross-encoder reranking and BM25 sparse embeddings.
 
 ---
 
-## Diagram 2 — LangGraph Agent Flow
-
-Full state machine with all nodes, conditional edges, and routing logic. Matches `src/agent/graph.py` exactly.
+## 2. LangGraph Agent Flow (Full State Machine)
 
 ```mermaid
 flowchart TD
-    START([START]) --> input_safety
+    START(["START\nuser query + thread_id"])
 
-    input_safety{"input_safety\nLangChain LLM Guardrail\nStructuredOutput: InputSafetyResult"}
-    input_safety -->|"blocked\nguardrail_blocked=True"| END_SAFE([END\nCanned safe response])
-    input_safety -->|safe| intent_router
+    subgraph GUARD_IN["INPUT GUARDRAIL"]
+        IS["input_safety\nLLM structured output\nInputSafetyResult\nDetects: identity probe,\njailbreak, injection,\nmanipulation"]
+    end
 
-    intent_router{"intent_router\nPattern match + LLM\nStructuredOutput: IntentResult\nroute_by_intent()"}
-    intent_router -->|greeting_response| greeting_response
-    intent_router -->|general_response| general_response
-    intent_router -->|"rewrite_for_retrieval\n(hr_query)"| query_prepare
+    subgraph ROUTING["INTENT ROUTING"]
+        IR{"intent_router\nFast path: regex patterns\ngreeting / thanks\nSlow path: LLM classify\nhr_query vs general_query"}
+        GR["greeting_response\nNo LLM — static\nMultilingual uz/ru/en"]
+        GenR["general_response\nDirect LLM answer\nNo RAG retrieval"]
+    end
 
-    greeting_response["greeting_response\nMultilingual uz/ru/en\nNo LLM call"] --> END_GREET([END])
+    subgraph RAG["RAG PIPELINE"]
+        QP["query_prepare\n1x LLM call\n• Rewrite query\n• Multi-query ×3\n• Step-back query\n• Infer metadata filters\nOutputs JSON"]
+        RET["retrieve\nHybrid search:\n• Dense (768-dim nomic)\n• Sparse (BM25)\nRRF fusion k=40\ntop_k=15, prefetch=30\n+10% same-language boost"]
+        RNK["rerank\nCross-encoder HTTP\njina-reranker-v1-tiny-en\nmodel-server :8080\ntop_k=7, timeout=30s"]
+        GD{"grade_documents\nNO LLM — threshold\nscore ≥ 0.15 → keep\nalways keep top 3\nmax_score < 0.25\nAND retries ≥ 1\n→ HITL trigger"}
+        HF["human_feedback\nLangGraph interrupt()\nMultilingual clarification\nPauses graph state\nAwaits POST /chat/resume"]
+        RW["rewrite_query\nLLM reformulation\nretries++ (max 3)"]
+        EC["expand_context\nParent chunk lookup\nNeighbor window=1\nDeduplication"]
+        GEN["generate\nLLM + dynamic prompt\nContext budget mgmt:\n• Claude: 200k − 4k\n• GPT-4o: 128k − 4k\n• Ollama: 128k − 4k\nConversation history\nCitations + confidence"]
+    end
 
-    general_response["general_response\nDirect LLM answer\nNo RAG retrieval"] --> output_safety
+    subgraph GUARD_OUT["OUTPUT GUARDRAIL"]
+        OS{"output_safety\nLLM structured output\nOutputSafetyResult\nDetects: identity leak,\nprovider mention,\noff-character response"}
+    end
 
-    query_prepare["query_prepare\nSingle LLM call:\n- query rewrite\n- multi-query\n- step-back\n- metadata filters"] --> retrieve
+    END_SAFE(["END\nCanned safe response\nmultilingual"])
+    END_GREET(["END\nGreeting / Thanks"])
+    END_GEN(["END\nAnswer + Sources\nSSE: generation event"])
 
-    retrieve["retrieve\nHybrid search:\ndense (nomic-embed-text)\n+ sparse (BM25 via model-server)\nRRF fusion + language boost"] --> rerank
+    START --> IS
+    IS -->|"blocked"| END_SAFE
+    IS -->|"safe"| IR
 
-    rerank["rerank\nCross-encoder HTTP call\njina-reranker-v2-base-multilingual\nmodel-server :8080"] --> grade_documents
+    IR -->|"greeting / thanks"| GR
+    IR -->|"general_query"| GenR
+    IR -->|"hr_query"| QP
 
-    grade_documents["grade_documents\nScore threshold filter\nsets needs_clarification\nif all scores &lt; 0.25 after retry"] --> human_feedback
+    GR --> END_GREET
+    GenR --> OS
 
-    human_feedback{"human_feedback\nLangGraph interrupt()\nshould_retry() routing"}
-    human_feedback -->|"generate\n(scores pass OR docs found)"| expand_context
-    human_feedback -->|"rewrite\n(retries &lt; 3)"| rewrite_query
-    human_feedback -->|"interrupted\n(HITL trigger)"| PAUSED([PAUSED\nAwaiting clarification\nclarification_needed SSE event])
+    QP --> RET
+    RET --> RNK
+    RNK --> GD
 
-    PAUSED -->|"POST /chat/resume\nCommand(resume=response)"| human_feedback
+    GD -->|"score ≥ 0.25\nor retries < 1"| EC
+    GD -->|"HITL trigger"| HF
+    GD -->|"fail retries < 3"| RW
 
-    rewrite_query["rewrite_query\nLLM reformulates query\nretries += 1"] --> retrieve
+    HF -->|"resume: clarification\nresets docs + retries"| RET
+    RW -->|"retry loop"| RET
 
-    expand_context["expand_context\nParent chunk lookup\n+ neighbor chunks\nvia Qdrant scroll"] --> generate
+    EC --> GEN
+    GEN --> OS
 
-    generate["generate\nLLM response generation\nContext budget management\nSources included"] --> output_safety
+    OS -->|"safe"| END_GEN
+    OS -->|"blocked → fallback"| END_GEN
 
-    output_safety{"output_safety\nConstitutional LLM Guardrail\nStructuredOutput: OutputSafetyResult\nChecks: identity leakage,\nprovider mention, off-character"}
-    output_safety -->|safe| END_GEN([END\nGeneration + Sources])
-    output_safety -->|"blocked\n(sanitized response)"| END_GEN
-
-    style input_safety fill:#f8cecc,stroke:#b85450
-    style output_safety fill:#f8cecc,stroke:#b85450
-    style intent_router fill:#fff2cc,stroke:#d6b656
-    style grade_documents fill:#fff2cc,stroke:#d6b656
-    style human_feedback fill:#e1d5e7,stroke:#9673a6
-    style retrieve fill:#dae8fc,stroke:#6c8ebf
-    style rerank fill:#dae8fc,stroke:#6c8ebf
-    style expand_context fill:#dae8fc,stroke:#6c8ebf
-    style generate fill:#d5e8d4,stroke:#82b366
-    style query_prepare fill:#d5e8d4,stroke:#82b366
-    style greeting_response fill:#d5e8d4,stroke:#82b366
-    style general_response fill:#d5e8d4,stroke:#82b366
-    style rewrite_query fill:#ffe6cc,stroke:#d79b00
-    style PAUSED fill:#e1d5e7,stroke:#9673a6,stroke-dasharray:5
+    style IS fill:#4a1e1e,stroke:#ef4444,color:#fef2f2
+    style OS fill:#4a1e1e,stroke:#ef4444,color:#fef2f2
+    style IR fill:#3a3a1e,stroke:#eab308,color:#fefce8
+    style GD fill:#3a3a1e,stroke:#eab308,color:#fefce8
+    style HF fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+    style RET fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style RNK fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style GEN fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
+    style START fill:#0f172a,stroke:#64748b,color:#f1f5f9
+    style END_SAFE fill:#4a1e1e,stroke:#ef4444,color:#fef2f2
+    style END_GREET fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
+    style END_GEN fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
 ```
-
-**Key implementation details:**
-- `grade_documents` sets `needs_clarification=True` but always proceeds to `human_feedback` node (no conditional edge before it).
-- `human_feedback` uses `should_retry()` for conditional routing: routes to `expand_context` (generate) or `rewrite_query` (retry). When `interrupt()` fires the graph suspends — it does not route.
-- `output_safety` receives output from both `general_response` and `generate` paths.
-- HITL resume resets `retries=0`, `documents=[]`, appends clarification to query string, then re-enters at `retrieve`.
 
 ---
 
-## Diagram 3 — Document Ingestion Pipeline
-
-Upload-to-index data flow. Reflects `src/ingestion/pipeline.py`, `parser.py`, `chunker.py`, and `embedding.py`.
+## 3. Document Ingestion Pipeline
 
 ```mermaid
 flowchart LR
-    Upload["POST /documents/upload\nmultipart form\nPDF / DOCX / Images"] --> DupCheck
+    UP["POST\n/documents/upload\nmultipart form\nPDF/DOCX/Images"]
 
-    DupCheck{"Duplicate check\nSHA256 hash\nvs Qdrant file_hash index"}
-    DupCheck -->|"already exists"| SkipReturn([Return: skipped=True])
-    DupCheck -->|"new document"| StoreMinIO
-
-    StoreMinIO["MinIO upload\ndocuments bucket\ndocument_id/filename"] --> Parse
-
-    subgraph Ingestion Pipeline
-        Parse["parser.py\nUnstructured library\nTesseract OCR (multilingual)\nPDF/DOCX/HTML/Images\nOutputs: elements with page_number,\nsection_header, element_type"] --> Chunk
-
-        Chunk["chunker.py\nRecursiveCharacterTextSplitter\nchild: size=500 overlap=100\nparent: size=2000\nPreserves: page range, section header,\nelement types per chunk"] --> LangDetect
-
-        LangDetect["Language Detection\nlangdetect library (batch)\nen / ru / uz\ntr -> uz mapping"] --> ContextualHeader
-
-        ContextualHeader["Contextual embedding\nPrepend section_header\nto embedding text only\n(not stored in payload)"] --> EmbedConcurrent
-
-        EmbedConcurrent["Concurrent embedding\nasyncio.gather()"]
-
-        EmbedConcurrent --> DenseEmbed["Dense embedding\nOllama nomic-embed-text\n768-dim cosine\nbatch size: 64\nvia httpx AsyncClient"]
-        EmbedConcurrent --> SparseEmbed["Sparse embedding\nModel Server BM25/IDF\nFastEmbed SPLADE\nbatch size: 128\nvia httpx AsyncClient"]
+    subgraph DEDUP["DEDUP CHECK"]
+        HASH["SHA256\nfile_hash\nCheck Qdrant\nfor existing hash"]
     end
 
-    DenseEmbed --> Upsert
-    SparseEmbed --> Upsert
-
-    Upsert["Qdrant upsert\ndense + sparse vectors\nPointStruct with full payload"]
-
-    Upsert --> QdrantIndex[(Qdrant Collection\nVectors: dense 768-dim\nSparse: BM25 IDF modifier\nFull-text: MULTILINGUAL tokenizer\nPayload indexes: document_id,\nsource, language, file_hash,\nchunk_index, page_number,\nsection_header, point_type)]
-
-    Upsert --> HypoQ{"enable_hypothetical\n_questions?"}
-    HypoQ -->|yes| GenQuestions["LLM: generate 3 questions\nper unique parent chunk\n(HyDE-style indexing)\nEmbed + upsert as\npoint_type=hypothetical_question"]
-    HypoQ -->|no| Done([Return: chunks_count, point_ids])
-    GenQuestions --> Done
-
-    style Parse fill:#dae8fc,stroke:#6c8ebf
-    style Chunk fill:#dae8fc,stroke:#6c8ebf
-    style LangDetect fill:#e1d5e7,stroke:#9673a6
-    style ContextualHeader fill:#e1d5e7,stroke:#9673a6
-    style DenseEmbed fill:#e1d5e7,stroke:#9673a6
-    style SparseEmbed fill:#e1d5e7,stroke:#9673a6
-    style Upsert fill:#dae8fc,stroke:#6c8ebf
-    style QdrantIndex fill:#f5f5f5,stroke:#666
-    style DupCheck fill:#fff2cc,stroke:#d6b656
-    style HypoQ fill:#fff2cc,stroke:#d6b656
-    style StoreMinIO fill:#f5f5f5,stroke:#666
-```
-
-**Key notes:**
-- Dense and sparse embeddings run concurrently via `asyncio.gather()` — significant speedup on large documents.
-- Language detection uses `langdetect` library (not LLM) — corrects `tr` -> `uz` for Uzbek Latin script confusion.
-- Hypothetical questions (HyDE) are optional, controlled by `enable_hypothetical_questions` setting.
-- Chunk size defaults: `CHUNK_SIZE=500`, `CHUNK_OVERLAP=100`, `PARENT_CHUNK_SIZE=2000`.
-
----
-
-## Diagram 4 — Chat Request Sequence (SSE + HITL)
-
-Full SSE streaming flow from browser through FastAPI to LangGraph and back. Reflects `src/api/routes/chat.py`.
-
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant FE as Frontend (React)
-    participant API as FastAPI :8000
-    participant Guard as Guardrails (validate_input)
-    participant LG as LangGraph Agent
-    participant DB as MongoDB (sessions + graph state)
-    participant QD as Qdrant :6333
-    participant RR as Model Server :8080
-    participant LLM as LLM Provider
-
-    B->>FE: Submit message
-    FE->>API: POST /chat/stream (SSE)\n{query, session_id?, filters?}\nBearer JWT
-
-    API->>Guard: validate_input(query)\nPII mask, injection detect, length check
-    Guard-->>API: {masked_query, warnings[]}
-
-    API->>DB: Resolve session (get_session)\nor create_session() if new
-    DB-->>API: session record
-    API-->>FE: SSE: session_created {session_id}
-
-    API->>LG: graph.astream(input, config)\nstream_mode="updates"\n+Langfuse callback if enabled
-
-    Note over LG: input_safety node
-    LG->>LLM: LLM guardrail check (InputSafetyResult)
-    LLM-->>LG: safe / blocked
-
-    alt blocked
-        LG-->>API: node_end: input_safety (guardrail_blocked=True)
-        API-->>FE: SSE: node_end {node: input_safety}
-    else safe
-        Note over LG: intent_router node
-        LG->>LLM: intent classification (IntentResult)
-        LLM-->>LG: greeting / general_query / hr_query
-
-        alt hr_query path
-            Note over LG: query_prepare node
-            LG->>LLM: rewrite + multi-query + step-back + filters
-            LLM-->>LG: prepared query
-
-            Note over LG: retrieve node
-            LG->>QD: hybrid_search (dense + sparse RRF)\nPrefetch limit: 30, top_k: 15
-            QD-->>LG: top-K candidates with scores
-
-            Note over LG: rerank node
-            LG->>RR: POST /rerank {query, documents}
-            RR-->>LG: scored + sorted documents
-
-            Note over LG: grade_documents node
-            LG->>LG: score threshold check (< 0.25?)
-
-            alt all scores below threshold after retry
-                LG->>LG: interrupt(clarification_question)
-                LG-->>API: graph paused (state.next non-empty)
-                API-->>FE: SSE: clarification_needed {question, session_id}
-                FE-->>B: Show ClarificationPrompt component
-
-                B-->>FE: User types clarification
-                FE->>API: POST /chat/resume\n{session_id, response}
-                API->>LG: graph.astream(Command(resume=response))
-                Note over LG: human_feedback node resumes\nQuery updated, docs cleared, retries=0
-            end
-
-            Note over LG: expand_context node
-            LG->>QD: scroll surrounding chunks (parent + neighbors)
-            QD-->>LG: expanded context
-
-            Note over LG: generate node
-            LG->>LLM: generate response (context budget mgmt)
-            LLM-->>LG: streamed tokens
-        end
-
-        Note over LG: output_safety node
-        LG->>LLM: OutputSafetyResult check
-        LLM-->>LG: safe / blocked
+    subgraph PARSE["PARSE  parser.py"]
+        OCR["unstructured lib\nTesseract OCR\nsupport: uz/ru/en\nlibmagic, poppler\nlibreoffice, pandoc"]
     end
 
-    loop per graph node update
-        LG-->>API: node update event
-        API-->>FE: SSE: node_end {node, data}
+    subgraph CHUNK["CHUNK  chunker.py"]
+        PC["Parent chunks\nsize=2000\noverlap=100"]
+        CC["Child chunks\nsize=500\noverlap=100\nstores parent_text\n+ parent_chunk_index"]
+        PC --> CC
     end
 
-    API->>DB: graph.aget_state(config) for final values
-    DB-->>API: final state (generation, documents, retries)
+    subgraph DETECT["LANGUAGE DETECT"]
+        LD["langdetect lib\nfirst 500 chars\nuz / ru / en\ntr→uz remap\nfallback: uz"]
+    end
 
-    API-->>FE: SSE: generation {answer, sources, retries, session_id}
+    subgraph EMBED["EMBED  embedding.py"]
+        DE["Dense\nOllama nomic-embed-text-v2-moe\n768-dim cosine\nbatch=64\ntimeout=300s"]
+        SE["Sparse (BM25)\nmodel-server /sparse-embed\nQdrant/bm25\nbatch=128\ntimeout=120s"]
+    end
 
-    API->>LLM: _generate_title() if new session
-    LLM-->>API: short title (3-6 words)
-    API-->>FE: SSE: session_title {title}
-    API->>DB: update_session(message_count, title)
+    subgraph HYP["HYPOTHETICAL Q  (per parent)"]
+        HQ["LLM generates\n3 questions\nper parent chunk\nEmbed separately\npoint_type=hypothetical_question"]
+    end
+
+    subgraph STORE["STORE"]
+        QD["Qdrant\ncollection: documents\nPayload:\ndocument_id, file_hash\npage_number, language\nchunk_index, section_header\nelement_types, point_type\ncreated_at"]
+        MN["MinIO\nbucket: documents\nkey: {doc_id}/{filename}\noriginal file bytes"]
+    end
+
+    UP --> HASH
+    HASH -->|"new file"| OCR
+    HASH -->|"duplicate\nskip"| SKIP["409 Conflict"]
+    OCR --> PC
+    CC --> LD
+    LD --> DE & SE
+    DE & SE --> QD
+    PC --> HQ
+    HQ --> QD
+    UP --> MN
+
+    style DEDUP fill:#2a2a1e,stroke:#eab308,color:#fefce8
+    style PARSE fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style CHUNK fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style DETECT fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+    style EMBED fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+    style HYP fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
+    style STORE fill:#2a2a1e,stroke:#eab308,color:#fefce8
 ```
 
 ---
 
-## Diagram 5 — Authentication Flow (JWT)
-
-JWT-based auth with access + refresh token rotation. Reflects `src/api/routes/auth.py` and `frontend/src/config/apiClient.ts`.
-
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant FE as Frontend (apiClient.ts)
-    participant Auth as authStore (Zustand)
-    participant API as FastAPI /auth
-    participant DB as MongoDB users
-
-    B->>FE: Enter username + password
-    FE->>API: POST /auth/login\n{username, password}
-    API->>DB: find_one({username})\nbcrypt.verify(password, hash)
-    DB-->>API: User record (is_active check)
-    API-->>FE: {access_token (30m JWT), refresh_token (7d JWT),\ntoken_type: "bearer"}
-    FE->>Auth: setTokens(access, refresh)
-    Auth->>Auth: Store in memory + localStorage
-
-    loop Every authenticated API call
-        FE->>API: Request + Authorization: Bearer {access_token}
-        API->>API: verify JWT signature + expiry\ndecode sub -> username
-        API->>DB: find_one({username}) — verify user still active
-        DB-->>API: User record
-        API-->>FE: 200 Response
-    end
-
-    Note over FE,API: When access token expires (401 response)
-    FE->>API: POST /auth/refresh\n{refresh_token}
-    API->>API: verify refresh JWT signature + expiry\ncheck token type == "refresh"
-    API-->>FE: {access_token (new 30m token)}
-    FE->>Auth: Update access_token in store
-    FE->>API: Retry original request with new token
-
-    Note over FE: Admin seeded on startup (lifespan)\nADMIN_USERNAME / ADMIN_PASSWORD from .env
-```
-
-**Token details:**
-- `ACCESS_TOKEN_EXPIRE_MINUTES=30` (default)
-- `REFRESH_TOKEN_EXPIRE_DAYS=7` (default)
-- `JWT_SECRET_KEY` — must be changed in production (default is insecure placeholder)
-- `apiClient.ts` handles 401 transparently: refreshes token and retries original request once
-
----
-
-## Diagram 6 — Hybrid Search Internals (Qdrant RRF)
-
-How Qdrant combines dense and sparse vectors. Reflects `src/services/qdrant_client.py` `hybrid_search()` and `src/agent/nodes.py` retrieve node.
+## 4. Hybrid Search Internals (Qdrant RRF)
 
 ```mermaid
 flowchart TD
-    Query["User query (prepared by query_prepare node)\nMay contain: rewritten query + multi-queries + step-back"] --> Embed
+    Q["User Query\n(rewritten by query_prepare)"]
 
-    Embed["EmbeddingService\nasyncio.gather() concurrent"]
-    Embed --> DenseEmbed["Dense embed\nOllama nomic-embed-text\n768-dim\nPOST /api/embed"]
-    Embed --> SparseEmbed["Sparse embed\nModel Server BM25/IDF\nFastEmbed SPLADE\nPOST /sparse-embed"]
-
-    subgraph Qdrant FusionQuery
-        DenseEmbed --> DensePrefetch["Dense Prefetch\nusing: dense\ncosine similarity\nlimit: 30"]
-        SparseEmbed --> SparsePrefetch["Sparse Prefetch\nusing: sparse\nIDF modifier\nlimit: 30"]
-        DensePrefetch --> RRF["FusionQuery\nfusion: RRF (Reciprocal Rank Fusion)\nk=40\nBuilt-in Qdrant fusion"]
-        SparsePrefetch --> RRF
-        RRF --> TopK["Top-15 fused results\nwith RRF scores"]
+    subgraph EMBED_Q["QUERY EMBEDDING"]
+        QDE["Dense embed\nOllama /api/embed\ntimeout=60s"]
+        QSE["Sparse embed\nmodel-server /sparse-embed\ntimeout=120s"]
     end
 
-    TopK --> LangBoost["Language boost +10%\nsame-language docs\n(query_language match)"]
-    LangBoost --> MultiQuery["Multi-query merge\nIf search_queries list:\nrun hybrid_search per query\nmerge + deduplicate by ID\ntake top retrieval_top_k"]
+    subgraph QDRANT_SEARCH["QDRANT HYBRID SEARCH"]
+        DP["Dense prefetch\ncosine similarity\ntop=30"]
+        SP["Sparse prefetch\nBM25 scoring\ntop=30"]
+        RRF["RRF Fusion\nReciprocal Rank Fusion\nk=40\nformula: 1/(k+rank)"]
+        FILT["Metadata filter\n(optional)\nlanguage, document_id\nfile_type, section_header"]
+        BOOST["Language boost\n+10% score\nif doc.language ==\nquery.language"]
+        TOP["Top-15 results\nwith scores"]
+    end
 
-    MultiQuery --> Reranker["Cross-encoder reranking\njina-reranker-v2-base-multilingual\nModel Server :8080\nPOST /rerank\n{query, documents[]}"]
-    Reranker --> Scored["Scored document list\n(score 0.0 - 1.0)"]
+    subgraph RERANK["CROSS-ENCODER RERANK"]
+        CE["model-server :8080\nPOST /rerank\njina-reranker-v1-tiny-en\ntimeout=30s\ntop_k=7"]
+    end
 
-    Scored --> Threshold{"grade_documents\nscore threshold\n< 0.25?"}
-    Threshold -->|"all below threshold\nafter retry"| HITL["needs_clarification=True\nhuman_feedback interrupt()"]
-    Threshold -->|"retries < 3\nno HITL trigger"| Retry["rewrite_query\nLLM reformulation\nretries += 1"]
-    Threshold -->|"pass (at least some >= 0.25)"| Expand["expand_context\nParent chunk lookup\n+ neighboring chunks\nvia Qdrant scroll (window=1)"]
+    subgraph GRADE["GRADING"]
+        THR{"score ≥ 0.15?\nkeep top 3 minimum"}
+        HITL{"max_score < 0.25\nAND retries ≥ 1?"}
+        RETRY{"retries < 3?"}
+    end
 
-    Expand --> Generate["generate node\nContext budget management\n(tiktoken token counting)\nAll rerank_top_k=7 docs"]
+    subgraph EXPAND["CONTEXT EXPANSION"]
+        PAR["parent_text\nfrom payload (fast path)"]
+        NEIGH["neighbor chunks\nwindow=1 (slow path)"]
+        DEDUP["Deduplication\nby chunk_index"]
+    end
 
-    style DenseEmbed fill:#dae8fc,stroke:#6c8ebf
-    style SparseEmbed fill:#dae8fc,stroke:#6c8ebf
-    style RRF fill:#fff2cc,stroke:#d6b656
-    style Reranker fill:#e1d5e7,stroke:#9673a6
-    style Threshold fill:#f8cecc,stroke:#b85450
-    style HITL fill:#e1d5e7,stroke:#9673a6
-    style Expand fill:#d5e8d4,stroke:#82b366
-    style Generate fill:#d5e8d4,stroke:#82b366
-    style Retry fill:#ffe6cc,stroke:#d79b00
+    Q --> QDE & QSE
+    QDE --> DP
+    QSE --> SP
+    DP & SP --> RRF
+    FILT --> RRF
+    RRF --> BOOST
+    BOOST --> TOP
+    TOP --> CE
+    CE --> THR
+    THR -->|"pass"| EXPAND
+    THR -->|"fail"| HITL
+    HITL -->|"yes → interrupt"| HF["human_feedback\ninterrupt()"]
+    HITL -->|"no"| RETRY
+    RETRY -->|"yes → rewrite"| RW["rewrite_query"]
+    RETRY -->|"no (≥3) → force generate"| EXPAND
+    PAR & NEIGH --> DEDUP
+    DEDUP --> GEN["generate node"]
+
+    style EMBED_Q fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+    style QDRANT_SEARCH fill:#2a2a1e,stroke:#eab308,color:#fefce8
+    style RERANK fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style GRADE fill:#4a1e1e,stroke:#ef4444,color:#fef2f2
+    style EXPAND fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
 ```
 
-**Configuration values (from `.env` / `settings.py`):**
-- `RETRIEVAL_TOP_K=15` — results after RRF fusion
-- `RETRIEVAL_PREFETCH_LIMIT=30` — candidates per dense/sparse branch
-- `RERANK_TOP_K=7` — docs passed to generate node
-- `RRF_K=40` — RRF denominator constant
-- `EMBEDDING_DIM=768` — nomic-embed-text vector size
+---
+
+## 5. Chat Request — Full Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant FE as React Frontend
+    participant API as FastAPI :8000
+    participant MONGO as MongoDB
+    participant LG as LangGraph Agent
+    participant QD as Qdrant :6333
+    participant MS as Model Server :8080
+    participant OLLAMA as Ollama :11434
+    participant LLM as LLM Provider
+
+    B->>FE: Submit message
+    FE->>API: POST /chat/stream\n{query, session_id?, language}\nBearer JWT
+
+    API->>API: Validate JWT\nExtract user_id
+
+    alt No session_id
+        API->>MONGO: Create chat_session\n{user_id, title="New Chat"}
+        MONGO-->>API: thread_id (UUID)
+        API-->>FE: SSE: session_created\n{thread_id}
+    else Existing session_id
+        API->>MONGO: Load chat_session\nVerify user_id matches
+    end
+
+    API->>LG: graph.astream_events(\n  {query, language, user_id},\n  {thread_id, checkpoint_ns}\n)
+
+    Note over LG: NODE: input_safety
+    LG->>LLM: Check safety\nInputSafetyResult\nstructured output
+    LLM-->>LG: {is_safe, reason, category}
+
+    alt Blocked
+        LG-->>API: END (safe response)
+        API-->>FE: SSE: generation\n{answer: canned response}
+    else Safe
+        API-->>FE: SSE: node_end\n{node: "input_safety"}
+
+        Note over LG: NODE: intent_router
+        LG->>LG: Pattern match\ngreeting/thanks regex
+        opt No pattern match
+            LG->>LLM: Classify intent\nhr_query vs general_query
+        end
+        API-->>FE: SSE: node_end\n{node: "intent_router"}
+
+        alt greeting/thanks
+            LG->>LG: greeting_response\n(no LLM)
+            API-->>FE: SSE: generation\n{answer: multilingual greeting}
+        else general_query
+            LG->>LLM: general_response\nDirect answer
+            LLM-->>LG: stream tokens
+            LG->>LLM: output_safety check
+            API-->>FE: SSE: generation\n{answer}
+        else hr_query
+            Note over LG: NODE: query_prepare
+            LG->>LLM: Single LLM call:\n• rewrite query\n• 3 alternative queries\n• step-back query\n• metadata filters
+            LLM-->>LG: JSON {queries[], filters{}}
+            API-->>FE: SSE: node_end\n{node: "query_prepare"}
+
+            Note over LG: NODE: retrieve (may loop 3x)
+            LG->>OLLAMA: POST /api/embed\nbatch dense embed\ntimeout=60s
+            OLLAMA-->>LG: [768-dim vectors]
+            LG->>MS: POST /sparse-embed\nBM25 vectors\ntimeout=120s
+            MS-->>LG: [{indices, values}]
+            LG->>QD: Hybrid search\nPrefetch dense top=30\nPrefetch sparse top=30\nRRF k=40 → top=15\n+language boost 10%
+            QD-->>LG: [15 documents + scores]
+            API-->>FE: SSE: node_end\n{node: "retrieve"}
+
+            Note over LG: NODE: rerank
+            LG->>MS: POST /rerank\n{query, texts[15], top_k=7}\ntimeout=30s
+            MS-->>LG: [{index, score}] sorted
+            API-->>FE: SSE: node_end\n{node: "rerank"}
+
+            Note over LG: NODE: grade_documents
+            LG->>LG: Filter: score ≥ 0.15\nKeep min top 3
+            alt max_score < 0.25 AND retries ≥ 1
+                LG-->>API: interrupt(clarification_q)
+                API-->>FE: SSE: clarification_needed\n{question: multilingual}
+                FE-->>B: Show ClarificationPrompt
+                B-->>FE: User types clarification
+                FE->>API: POST /chat/resume\n{thread_id, response}
+                API->>LG: Command(resume=response)\nReset docs + retries
+                Note over LG: Re-enters retrieve loop
+            else fail AND retries < 3
+                LG->>LLM: rewrite_query\nretries++
+                LLM-->>LG: reformulated query
+                Note over LG: Back to retrieve
+            else pass
+                Note over LG: NODE: expand_context
+                LG->>MONGO: Lookup neighbor chunks\nwindow=1 (slow path)
+                MONGO-->>LG: Adjacent chunks
+                LG->>LG: Merge + deduplicate
+                API-->>FE: SSE: node_end\n{node: "expand_context"}
+
+                Note over LG: NODE: generate
+                LG->>LLM: System prompt + context\nConversation history\nContext budget: model_ctx - 4k tokens\nStream response
+                LLM-->>LG: Token stream
+
+                Note over LG: NODE: output_safety
+                LG->>LLM: Check output\nOutputSafetyResult
+                LLM-->>LG: {is_safe, reason}
+
+                API-->>FE: SSE: generation\n{answer, sources[]}
+            end
+        end
+    end
+
+    API->>MONGO: Upsert session\n{message_count++,\nlast_active_at}
+
+    opt First exchange
+        API->>LLM: Generate session title\n(async, non-blocking)
+        LLM-->>API: Short title string
+        API->>MONGO: Update session title
+        API-->>FE: SSE: session_title\n{title}
+    end
+```
 
 ---
 
-## Discrepancies Found vs Skill Template Diagrams
+## 6. Authentication & JWT Flow
 
-The following differences exist between the codebase and the skill template diagrams:
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant FE as apiClient.ts
+    participant API as FastAPI /auth
+    participant MONGO as MongoDB users
 
-1. **`grade_documents` does NOT have a direct conditional edge to `expand_context` or `rewrite_query`.**
-   The graph always proceeds `grade_documents` -> `human_feedback` -> `should_retry()` routing. The `should_retry()` function handles both the normal pass case and the retry case.
+    Note over B,MONGO: REGISTER / LOGIN
+    B->>FE: POST /auth/login\n{username, password}
+    FE->>API: Forward (no auth header)
+    API->>MONGO: Find user by username
+    MONGO-->>API: {hashed_password, role, id}
+    API->>API: bcrypt.verify(password, hash)
+    API-->>FE: 200 {access_token (30m HS256),\nrefresh_token (7d HS256)}
+    FE->>FE: Store access_token in memory\nStore refresh_token in localStorage
 
-2. **Language detection uses `langdetect` library, not LLM.**
-   The ingestion pipeline uses `langdetect` (batch, deterministic) — not an LLM call. The CLAUDE.md description is slightly inaccurate on this point.
+    Note over B,MONGO: AUTHENTICATED REQUEST
+    B->>FE: Any API call
+    FE->>API: Request + Authorization: Bearer {access_token}
+    API->>API: Verify JWT signature\nCheck expiry\nExtract {user_id, role}
+    API-->>FE: 200 Response
 
-3. **`general_response` goes through `output_safety` before END.**
-   The template diagram shows `output_safety` only on the HR query path. Both `general_response` and `generate` route through `output_safety`.
+    Note over B,MONGO: TOKEN REFRESH (auto, transparent)
+    FE->>API: Request + expired access_token
+    API-->>FE: 401 Unauthorized
+    FE->>API: POST /auth/refresh\n{refresh_token}
+    API->>MONGO: Validate refresh token\n(not revoked)
+    MONGO-->>API: User record
+    API-->>FE: New {access_token}
+    FE->>FE: Update stored access_token
+    FE->>API: Retry original request\nNew Bearer token
+    API-->>FE: 200 Response
 
-4. **Sparse embeddings come from model-server (FastEmbed BM25), not full-text-only.**
-   The hybrid search uses: dense via Ollama + sparse via model-server. Qdrant also has a full-text TEXT index on the `text` field, but the primary hybrid search uses the `sparse` vector field with BM25 IDF.
-
-5. **Langfuse is disabled in docker-compose by default.**
-   The service topology should show Langfuse as optional/commented-out, not as an active service.
-
-6. **LangGraph Server (`:8123`) is a separate container but FastAPI uses direct graph invocation.**
-   The backend does NOT call `langgraph-server` for chat — it invokes the graph directly via `MongoDBSaver` checkpointer. LangGraph Server is kept for legacy/alternative access.
-
-7. **Hypothetical question generation (HyDE-style) exists in the ingestion pipeline.**
-   The template diagram does not show this optional indexing step.
+    Note over B,MONGO: ADMIN SEEDING (startup)
+    API->>MONGO: Find admin user
+    alt Not exists
+        API->>MONGO: Create admin\nbcrypt(ADMIN_PASSWORD)\nrole=admin
+    end
+```
 
 ---
 
-## Recommended Diagram Placement
+## 7. Resource Requirements (Per Service)
 
-| Diagram | Recommended Location |
-|---------|---------------------|
-| Service Topology | `README.md` top-level overview section |
-| LangGraph Agent Flow | `docs/architecture.md` + link in README |
-| Document Ingestion Pipeline | `docs/architecture.md` + `/documents/upload` API docstring |
-| Chat Sequence (SSE + HITL) | `docs/architecture.md` + frontend `useStreamingChat.ts` header |
-| Authentication Flow | `docs/architecture.md` + `src/api/routes/auth.py` header |
-| Hybrid Search Internals | `docs/architecture.md` + `src/services/qdrant_client.py` header |
+```mermaid
+graph LR
+    subgraph INFRA["INFRASTRUCTURE RESOURCES"]
+        direction TB
+
+        FE_R["Frontend (node:20-alpine)\nCPU: 0.25 core\nRAM: 256 MB\nDisk: ~500 MB (node_modules)\nPort: 5173"]
+
+        API_R["FastAPI (python:3.12-slim)\nCPU: 1–2 cores\nRAM: 1–2 GB\n(tesseract OCR = heavy)\nDisk: ~3 GB (libreoffice,\ntesseract uz/ru/en, pandoc,\nOpenCV, PyTorch CPU)\nPort: 8000"]
+
+        LG_R["LangGraph Server (python:3.12-slim)\nCPU: 0.5–1 core\nRAM: 512 MB – 1 GB\nDisk: ~1 GB\nPort: 8123→8000"]
+
+        MS_R["Model Server (python:3.12-slim)\nCPU: 2–4 cores (CPU inference)\nRAM: 2–4 GB\n(jina-reranker model ~500 MB\n+ BM25 model ~100 MB)\nDisk: 1–2 GB (model cache)\nPort: 8080\nStart period: 120s (model download)"]
+
+        MONGO_R["MongoDB 7\nCPU: 0.5 core\nRAM: 512 MB – 2 GB\nDisk: 10–50 GB (sessions,\nLangGraph checkpoints)\nPort: 27017"]
+
+        QDRANT_R["Qdrant\nCPU: 1–2 cores\nRAM: 1–4 GB\n(768-dim vectors)\n~1 GB per 1M vectors\nDisk: 5–20 GB\nPorts: 6333 HTTP, 6334 gRPC"]
+
+        REDIS_R["Redis 7-alpine\nCPU: 0.1 core\nRAM: 64–256 MB\nDisk: minimal\nPort: 6379"]
+
+        MINIO_R["MinIO\nCPU: 0.25 core\nRAM: 256–512 MB\nDisk: 10–100 GB\n(original documents)\nPorts: 9000, 9001"]
+
+        OLLAMA_R["Ollama (host machine)\nCPU: 4–8 cores\nRAM: 8–16 GB\n(nomic-embed 768 ~700 MB\n+ llama3.1 8B ~4.7 GB)\nGPU: optional (speeds ×10)\nPort: 11434"]
+    end
+
+    style FE_R fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
+    style API_R fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style LG_R fill:#1e2a4a,stroke:#3b82f6,color:#eff6ff
+    style MS_R fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+    style MONGO_R fill:#2a2a1e,stroke:#eab308,color:#fefce8
+    style QDRANT_R fill:#2a2a1e,stroke:#eab308,color:#fefce8
+    style REDIS_R fill:#2a2a1e,stroke:#eab308,color:#fefce8
+    style MINIO_R fill:#2a2a1e,stroke:#eab308,color:#fefce8
+    style OLLAMA_R fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+```
+
+---
+
+## 8. Resource Summary Table
+
+| Service | Image | CPU | RAM | Disk | GPU |
+|---------|-------|-----|-----|------|-----|
+| **Frontend** | node:20-alpine | 0.25 core | 256 MB | 500 MB | — |
+| **FastAPI** | python:3.12-slim | 1–2 cores | 1–2 GB | 3 GB | — |
+| **LangGraph Server** | python:3.12-slim | 0.5–1 core | 512 MB–1 GB | 1 GB | — |
+| **Model Server** | python:3.12-slim | 2–4 cores | 2–4 GB | 1–2 GB | Optional |
+| **MongoDB 7** | mongo:7 | 0.5 core | 512 MB–2 GB | 10–50 GB | — |
+| **Qdrant** | qdrant/qdrant | 1–2 cores | 1–4 GB | 5–20 GB | — |
+| **Redis** | redis:7-alpine | 0.1 core | 64–256 MB | minimal | — |
+| **MinIO** | minio/minio | 0.25 core | 256–512 MB | 10–100 GB | — |
+| **Ollama (host)** | host binary | 4–8 cores | 8–16 GB | 10–20 GB | Optional |
+| **TOTAL (min)** | | **~10 cores** | **~14 GB** | **~42 GB** | — |
+| **TOTAL (recommended)** | | **~16 cores** | **~28 GB** | **~100 GB** | 8 GB VRAM |
+
+> **Ollama GPU**: nomic-embed-text ~700 MB VRAM + llama3.1:8B ~5 GB VRAM = ~6 GB minimum. RTX 3060 (12 GB) or better recommended.
+
+---
+
+## 9. Key Configuration Numbers
+
+```mermaid
+mindmap
+  root((Agentic RAG\nConfig))
+    Chunking
+      chunk_size 500 tokens
+      overlap 100 tokens
+      parent_chunk_size 2000
+      hypothetical_questions 3 per parent
+    Retrieval
+      prefetch_limit 30 per modality
+      rrf_k 40
+      top_k 15 after fusion
+      language_boost +10%
+    Reranking
+      rerank_top_k 7
+      score_threshold 0.15
+      min_keep top 3
+      HITL_trigger max_score lt 0.25
+    Embedding
+      dense_dim 768
+      dense_batch 64
+      sparse_batch 128
+      ollama_timeout 300s
+      query_timeout 60s
+      sparse_timeout 120s
+    Agent
+      max_retries 3
+      reranker_timeout 30s
+      context_reserve 4000 tokens
+    Auth
+      access_expiry 30 min
+      refresh_expiry 7 days
+      algorithm HS256
+    Health
+      interval 10s
+      timeout 5s
+      retries 5
+      model_server_start 120s
+```
+
+---
+
+## 10. Network & SSL Architecture
+
+```mermaid
+flowchart TD
+    subgraph DOCKER_NET["Docker Network: rag-network (bridge, MTU 1500)"]
+        FE_C["frontend :5173"]
+        API_C["fastapi :8000"]
+        LG_C["langgraph-server\ninternal :8000\nexternal :8123"]
+        MS_C["model-server :8080"]
+        QD_C["qdrant :6333/:6334"]
+        MG_C["mongodb :27017"]
+        RD_C["redis :6379"]
+        MN_C["minio :9000/:9001"]
+    end
+
+    HOST["Host Machine"]
+    OLLAMA_H["Ollama :11434\n(host.docker.internal)"]
+    CLAUDE["Claude API\napi.anthropic.com"]
+    OPENAI["OpenAI API\napi.openai.com"]
+    CORP_FW["Corporate Firewall\nSSL Inspection\n(verify=False bypass)"]
+
+    API_C -->|"http (internal)"| QD_C & MG_C & RD_C & MN_C & MS_C
+    API_C -->|"host.docker.internal:11434"| OLLAMA_H
+    API_C -->|"HTTPS verify=False\nPYTHONHTTPSVERIFY=0"| CORP_FW
+    LG_C -->|"HTTPS verify=False\nsitecustomize.py"| CORP_FW
+    CORP_FW --> CLAUDE & OPENAI
+    HOST -->|"port mapping"| FE_C & API_C & LG_C
+
+    style CORP_FW fill:#4a1e1e,stroke:#ef4444,color:#fef2f2
+    style CLAUDE fill:#2a1e4a,stroke:#a855f7,color:#faf5ff
+    style OPENAI fill:#1e3a2f,stroke:#22c55e,color:#f0fdf4
+```
+
+---
+
+## 11. Data Models & MongoDB Collections
+
+```mermaid
+erDiagram
+    USERS {
+        ObjectId _id PK
+        string username UK
+        string hashed_password
+        string role "admin|user"
+        datetime created_at
+        datetime updated_at
+    }
+
+    CHAT_SESSIONS {
+        string thread_id PK
+        string user_id FK
+        string title
+        int message_count
+        datetime created_at
+        datetime updated_at
+    }
+
+    MESSAGE_FEEDBACK {
+        ObjectId _id PK
+        string thread_id FK
+        int message_index
+        string feedback "up|down"
+        string note "required for down"
+        datetime created_at
+    }
+
+    LANGGRAPH_CHECKPOINTS {
+        string thread_id FK
+        string checkpoint_id PK
+        string checkpoint_ns
+        json state "AgentState TypedDict"
+        datetime created_at
+    }
+
+    USERS ||--o{ CHAT_SESSIONS : "owns"
+    CHAT_SESSIONS ||--o{ MESSAGE_FEEDBACK : "has"
+    CHAT_SESSIONS ||--o{ LANGGRAPH_CHECKPOINTS : "persists"
+```
+
+---
+
+## 12. Qdrant Point Schema
+
+```mermaid
+graph TD
+    subgraph POINT["Qdrant Point (per chunk)"]
+        ID["id: UUID"]
+        DENSE["vector.dense: float[768]\nnomic-embed-text-v2-moe\ncosine distance"]
+        SPARSE["vector.sparse: SparseVector\nindices: int[]\nvalues: float[]\nQdrant/bm25"]
+        PAYLOAD["payload:\n• text: str (chunk content)\n• parent_text: str (2000-tok parent)\n• document_id: UUID\n• file_hash: SHA256\n• source: filename\n• page_number: int\n• page_start / page_end: int\n• chunk_index: int\n• parent_chunk_index: int\n• section_header: str\n• element_types: str[]\n• language: 'uz'|'ru'|'en'\n• point_type: 'chunk'|'hypothetical_question'\n• created_at: ISO datetime"]
+    end
+
+    subgraph INDEXES["Payload Indexes"]
+        KW["Keyword indexes:\ndocument_id, source, file_type\nlanguage, file_hash\nsection_header, element_types\npoint_type"]
+        INT["Integer indexes:\npage_number, chunk_index\nparent_chunk_index"]
+        FT["Full-text index:\ntext field\nmultilingual tokenizer\nlowercase=true"]
+        DT["Datetime index:\ncreated_at"]
+    end
+
+    POINT --> INDEXES
+```
+
+---
+
+*To render these diagrams:*
+- **GitHub/GitLab/Notion**: Paste `.md` content directly — Mermaid renders natively
+- **VS Code**: Install "Markdown Preview Mermaid Support" extension
+- **PNG export**: `npx @mermaid-js/mermaid-cli -i architecture.md -o architecture.svg`

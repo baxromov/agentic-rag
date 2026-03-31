@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git:*)",
-      "Bash(xmllint --noout /Users/baxromov/PycharmProjects/agentic-rag/.claude/docs/drawio/agentic-rag.drawio)"
-    ]
-  }
-}

@@ -1,33 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "mcp__acp__Bash",
-      "mcp__acp__Write",
-      "mcp__acp__Edit",
       "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(docker compose down:*)",
-      "Bash(docker volume rm:*)",
-      "Bash(docker compose:*)",
-      "Bash(python -c:*)",
-      "WebFetch(domain:langfuse.com)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebSearch",
-      "WebFetch(domain:docs.langchain.com)",
-      "WebFetch(domain:python.langchain.com)",
-      "WebFetch(domain:api.python.langchain.com)",
-      "Bash(cd:*)",
-      "WebFetch(domain:pypi.org)",
-      "WebFetch(domain:mcp-atlassian.soomiles.com)",
-      "Bash(ps -p 28576 -o pid,command)",
-      "Bash(kill 28576)",
-      "WebFetch(domain:galileo.ai)",
-      "Bash(grep -r \"MMR\\\\|maximal.*marginal\\\\|diversity\\\\|autocut\\\\|query.*routing\\\\|recursive.*retrieval\\\\|sentence.*window\" --include=*.py)",
-      "Bash(initialized\" errors. Now re-raises with full traceback so the root:*)",
-      "Bash(cp:*)",
-      "Bash(git remote:*)",
-      "Bash(git branch:*)"
+      "Bash(git commit:*)"
     ]
   }
 }
