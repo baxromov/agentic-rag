@@ -83,6 +83,12 @@ export const useStreamingChat = () => {
                   }
                 }
 
+                if (event.event === "llm_token") {
+                  if (event.data?.token) {
+                    setCurrentResponse((prev) => prev + event.data.token);
+                  }
+                }
+
                 if (event.event === "node_end" && event.node === "generate") {
                   if (event.data?.generation) {
                     setCurrentResponse(event.data.generation);

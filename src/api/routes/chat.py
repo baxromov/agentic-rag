@@ -4,7 +4,6 @@ import time
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
-from langgraph.types import Command
 from pydantic import BaseModel
 
 from src.agent.guardrails import GuardrailViolation, validate_input
@@ -31,10 +30,6 @@ class StreamChatRequest(BaseModel):
     filters: dict | None = None
     context: dict | None = None
 
-
-class ResumeRequest(BaseModel):
-    session_id: str
-    response: str
 
 
 async def _generate_title(query: str, settings, session_id: str | None = None) -> str:
@@ -180,55 +175,53 @@ async def stream_chat(
                     "query": processed_query,
                     "documents": [],
                     "generation": "",
-                    "retries": 0,
                     "filters": filters,
                     "context_metadata": None,
                     "runtime_context": runtime_context,
-                    "needs_clarification": False,
-                    "clarification_question": None,
-                    "human_response": None,
+                    "intent": None,
                     "guardrail_blocked": False,
                 },
                 config=config,
-                stream_mode="updates",
+                stream_mode=["messages", "updates"],
             ):
-                if not isinstance(event, dict):
-                    continue
-                for node_name, node_output in event.items():
-                    if node_output is None:
+                mode, data = event
+                if mode == "messages":
+                    chunk, metadata = data
+                    if (
+                        metadata.get("langgraph_node") == "generate"
+                        and hasattr(chunk, "content")
+                        and chunk.content
+                    ):
+                        yield f"data: {json.dumps({'event': 'llm_token', 'data': {'token': chunk.content}})}\n\n"
+                elif mode == "updates":
+                    if not isinstance(data, dict):
                         continue
-                    yield f"data: {json.dumps({'event': 'node_end', 'node': node_name, 'data': _serialize_output(node_output)})}\n\n"
+                    for node_name, node_output in data.items():
+                        if node_output is None:
+                            continue
+                        yield f"data: {json.dumps({'event': 'node_end', 'node': node_name, 'data': _serialize_output(node_output)})}\n\n"
 
             # Flush Langfuse traces
             flush_langfuse()
 
-            # Get final state — check for interrupt (HITL)
+            # Get final state and emit generation event
             state = await graph.aget_state(config)
             values = state.values if state else {}
-
-            # Check for HITL interrupt (state.next is non-empty when interrupted)
-            if state and state.next:
-                # Graph is paused at an interrupt
-                clarification_q = values.get("clarification_question", "Could you clarify?")
-                yield f"data: {json.dumps({'event': 'clarification_needed', 'data': {'question': clarification_q, 'session_id': session_id}})}\n\n"
-            else:
-                # Normal generation response
-                context_meta = values.get("context_metadata", {})
-                raw_docs = values.get("documents", [])
-                final_data = {
-                    "event": "generation",
-                    "data": {
-                        "answer": values.get("generation", ""),
-                        "query": values.get("query", query),
-                        "retries": values.get("retries", 0),
-                        "sources_count": len(raw_docs),
-                        "sources": _serialize_sources(raw_docs),
-                        "thread_id": session_id,
-                        "session_id": session_id,
-                        "context_metadata": context_meta,
-                    },
-                }
-                yield f"data: {json.dumps(final_data)}\n\n"
+            context_meta = values.get("context_metadata", {})
+            raw_docs = values.get("documents", [])
+            final_data = {
+                "event": "generation",
+                "data": {
+                    "answer": values.get("generation", ""),
+                    "query": values.get("query", query),
+                    "sources_count": len(raw_docs),
+                    "sources": _serialize_sources(raw_docs),
+                    "thread_id": session_id,
+                    "session_id": session_id,
+                    "context_metadata": context_meta,
+                },
+            }
+            yield f"data: {json.dumps(final_data)}\n\n"
 
             # Update session metadata
             try:
@@ -266,76 +259,6 @@ async def stream_chat(
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-
-@router.post("/chat/resume")
-async def resume_chat(request: ResumeRequest, user: dict = Depends(get_current_user)):
-    """Resume a chat after human-in-the-loop clarification."""
-    graph = get_graph()
-    uid = str(user["_id"])
-    session_id = request.session_id
-
-    # Verify ownership
-    session = await get_session(session_id)
-    if not session or session.get("user_id") != uid:
-        return StreamingResponse(
-            iter([f"data: {json.dumps({'event': 'error', 'data': {'message': 'Access denied'}})}\n\n"]),
-            media_type="text/event-stream",
-        )
-
-    config = _make_config(session_id)
-
-    async def event_generator():
-        try:
-            # Attach Langfuse handler for unified tracing
-            lf_handler, lf_metadata = create_langfuse_handler(
-                trace_name="rag-agent-resume", session_id=session_id, user_id=uid
-            )
-            if lf_handler:
-                config.setdefault("callbacks", []).append(lf_handler)
-                config.setdefault("metadata", {}).update(lf_metadata)
-
-            # Resume the interrupted graph with user's response
-            async for event in graph.astream(
-                Command(resume=request.response),
-                config=config,
-                stream_mode="updates",
-            ):
-                if not isinstance(event, dict):
-                    continue
-                for node_name, node_output in event.items():
-                    if node_output is None:
-                        continue
-                    yield f"data: {json.dumps({'event': 'node_end', 'node': node_name, 'data': _serialize_output(node_output)})}\n\n"
-
-            # Flush Langfuse traces
-            flush_langfuse()
-
-            # Get final state
-            state = await graph.aget_state(config)
-            values = state.values if state else {}
-            context_meta = values.get("context_metadata", {})
-            raw_docs = values.get("documents", [])
-
-            final_data = {
-                "event": "generation",
-                "data": {
-                    "answer": values.get("generation", ""),
-                    "query": values.get("query", ""),
-                    "retries": values.get("retries", 0),
-                    "sources_count": len(raw_docs),
-                    "sources": _serialize_sources(raw_docs),
-                    "thread_id": session_id,
-                    "session_id": session_id,
-                    "context_metadata": context_meta,
-                },
-            }
-            yield f"data: {json.dumps(final_data)}\n\n"
-
-        except Exception as e:
-            logger.error("resume_failed", error=str(e))
-            yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}})}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.websocket("/ws/chat")
@@ -433,30 +356,39 @@ async def websocket_chat(websocket: WebSocket):
                         "query": processed_query,
                         "documents": [],
                         "generation": "",
-                        "retries": 0,
                         "filters": filters,
                         "context_metadata": None,
                         "runtime_context": runtime_context,
-                        "needs_clarification": False,
-                        "clarification_question": None,
-                        "human_response": None,
+                        "intent": None,
                         "guardrail_blocked": False,
                     },
                     config=config,
-                    stream_mode="updates",
+                    stream_mode=["messages", "updates"],
                 ):
-                    if not isinstance(event, dict):
-                        continue
-                    for node_name, node_output in event.items():
-                        if node_output is None:
+                    mode, data = event
+                    if mode == "messages":
+                        chunk, metadata = data
+                        if (
+                            metadata.get("langgraph_node") == "generate"
+                            and hasattr(chunk, "content")
+                            and chunk.content
+                        ):
+                            await websocket.send_text(
+                                ChatEvent(event="llm_token", data={"token": chunk.content}).model_dump_json()
+                            )
+                    elif mode == "updates":
+                        if not isinstance(data, dict):
                             continue
-                        await websocket.send_text(
-                            ChatEvent(
-                                event="node_end",
-                                node=node_name,
-                                data=_serialize_output(node_output),
-                            ).model_dump_json()
-                        )
+                        for node_name, node_output in data.items():
+                            if node_output is None:
+                                continue
+                            await websocket.send_text(
+                                ChatEvent(
+                                    event="node_end",
+                                    node=node_name,
+                                    data=_serialize_output(node_output),
+                                ).model_dump_json()
+                            )
 
                 state = await graph.aget_state(config)
                 values = state.values if state else {}
@@ -468,7 +400,6 @@ async def websocket_chat(websocket: WebSocket):
                         data={
                             "answer": values.get("generation", ""),
                             "query": values.get("query", query),
-                            "retries": values.get("retries", 0),
                             "sources_count": len(raw_docs),
                             "sources": _serialize_sources(raw_docs),
                             "thread_id": thread_id,
@@ -482,10 +413,8 @@ async def websocket_chat(websocket: WebSocket):
                     "websocket_request_completed",
                     thread_id=thread_id,
                     query_length=len(query),
-                    retries=values.get("retries", 0),
                     sources_count=len(values.get("documents", [])),
                     total_duration_ms=request_duration,
-                    context_metadata=context_meta,
                 )
             except Exception as e:
                 logger.error(
