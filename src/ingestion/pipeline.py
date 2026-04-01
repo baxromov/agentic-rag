@@ -10,7 +10,7 @@ from langdetect import LangDetectException
 
 from src.config.settings import Settings
 from src.ingestion.chunker import chunk_document
-from src.ingestion.parser import parse_document
+from src.ingestion.parser import parse_document, parse_document_llm
 from src.services.minio_client import MinioService
 from src.services.qdrant_client import QdrantService
 
@@ -78,7 +78,7 @@ class IngestionPipeline:
         self._minio.upload(minio_key, file_bytes)
 
         # Parse
-        parsed = parse_document(file_bytes, filename)
+        parsed = await self._parse(file_bytes, filename)
 
         # Chunk
         chunks = chunk_document(parsed, self._settings)
@@ -146,6 +146,12 @@ class IngestionPipeline:
             "point_ids": point_ids,
         }
 
+    async def _parse(self, file_bytes: bytes, filename: str):
+        """Parse document using OCR or LLM based on settings."""
+        if self._settings.parser_mode == "llm":
+            return await parse_document_llm(file_bytes, filename, self._llm)
+        return parse_document(file_bytes, filename)
+
     async def _generate_hypothetical_questions(self, parent_text: str) -> list[str]:
         """Generate questions this chunk could answer (HyDE-style)."""
         messages = [
@@ -187,7 +193,7 @@ class IngestionPipeline:
         minio_key = f"{document_id}/{filename}"
 
         # Parse
-        parsed = parse_document(file_bytes, filename)
+        parsed = await self._parse(file_bytes, filename)
 
         # Chunk
         chunks = chunk_document(parsed, self._settings)

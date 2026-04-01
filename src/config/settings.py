@@ -72,6 +72,7 @@ class Settings(BaseSettings):
 
     # -- Ingestion --
     enable_hypothetical_questions: bool = True
+    parser_mode: str = "ocr"  # "ocr" | "llm"
 
     # -- Langfuse --
     langfuse_host: str = ""
