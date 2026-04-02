@@ -100,4 +100,4 @@ httpx.AsyncClient.__init__ = _patched_async_init
 httpx.Client.__init__ = _patched_sync_init
 EOF
 
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

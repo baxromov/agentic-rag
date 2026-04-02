@@ -31,6 +31,7 @@ export const useStreamingChat = () => {
     {},
   );
   const abortControllerRef = useRef<AbortController | null>(null);
+  const accumulatedResponseRef = useRef("");
 
   const sessionStore = useSessionStore;
 
@@ -85,13 +86,8 @@ export const useStreamingChat = () => {
 
                 if (event.event === "llm_token") {
                   if (event.data?.token) {
-                    setCurrentResponse((prev) => prev + event.data.token);
-                  }
-                }
-
-                if (event.event === "node_end" && event.node === "generate") {
-                  if (event.data?.generation) {
-                    setCurrentResponse(event.data.generation);
+                    accumulatedResponseRef.current += event.data.token;
+                    setCurrentResponse(accumulatedResponseRef.current);
                   }
                 }
 
@@ -101,6 +97,7 @@ export const useStreamingChat = () => {
                 }
 
                 if (event.event === "generation") {
+                  accumulatedResponseRef.current = "";
                   setMessages((prev) => {
                     const assistantMessage: Message = {
                       role: "assistant",
@@ -124,12 +121,14 @@ export const useStreamingChat = () => {
 
                 if (event.event === "error") {
                   console.error("Stream error:", event.data?.message);
-                  const errorMessage: Message = {
-                    role: "assistant",
-                    content: `Error: ${event.data?.message || "Unknown error"}`,
-                    timestamp: new Date(),
-                  };
-                  setMessages((prev) => [...prev, errorMessage]);
+                  const partial = accumulatedResponseRef.current;
+                  accumulatedResponseRef.current = "";
+                  setMessages((prev) => {
+                    const next = partial
+                      ? [...prev, { role: "assistant" as const, content: partial, timestamp: new Date() }]
+                      : prev;
+                    return [...next, { role: "assistant" as const, content: `Error: ${event.data?.message || "Unknown error"}`, timestamp: new Date() }];
+                  });
                   setCurrentResponse("");
                 }
               } catch (e) {
@@ -240,18 +239,22 @@ export const useStreamingChat = () => {
 
         await _processSSE(response);
       } catch (error: any) {
+        const partial = accumulatedResponseRef.current;
         if (error.name === "AbortError") {
-          console.log("Stream aborted");
+          if (partial) {
+            setMessages((prev) => [...prev, { role: "assistant", content: partial, timestamp: new Date() }]);
+          }
         } else {
           console.error("Stream error:", error);
-          const errorMessage: Message = {
-            role: "assistant",
-            content: `Error: ${error.message}`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, errorMessage]);
+          setMessages((prev) => {
+            const next = partial
+              ? [...prev, { role: "assistant" as const, content: partial, timestamp: new Date() }]
+              : prev;
+            return [...next, { role: "assistant" as const, content: `Error: ${error.message}`, timestamp: new Date() }];
+          });
         }
       } finally {
+        accumulatedResponseRef.current = "";
         setIsStreaming(false);
         setCurrentResponse("");
         abortControllerRef.current = null;
@@ -298,18 +301,20 @@ export const useStreamingChat = () => {
 
         await _processSSE(res);
       } catch (error: any) {
+        const partial = accumulatedResponseRef.current;
         if (error.name !== "AbortError") {
           console.error("Resume error:", error);
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content: `Error: ${error.message}`,
-              timestamp: new Date(),
-            },
-          ]);
+          setMessages((prev) => {
+            const next = partial
+              ? [...prev, { role: "assistant" as const, content: partial, timestamp: new Date() }]
+              : prev;
+            return [...next, { role: "assistant" as const, content: `Error: ${error.message}`, timestamp: new Date() }];
+          });
+        } else if (partial) {
+          setMessages((prev) => [...prev, { role: "assistant", content: partial, timestamp: new Date() }]);
         }
       } finally {
+        accumulatedResponseRef.current = "";
         setIsStreaming(false);
         setCurrentResponse("");
         abortControllerRef.current = null;

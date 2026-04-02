@@ -4,6 +4,8 @@ from urllib.parse import quote
 
 import math
 
+import asyncio
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
@@ -15,6 +17,8 @@ from src.models.schemas import (
     BulkDeleteResponse,
     BulkResyncRequest,
     BulkResyncResponse,
+    BulkUploadResponse,
+    BulkUploadResult,
     DocumentDeleteResponse,
     DocumentListResponse,
     DocumentMetadata,
@@ -53,6 +57,41 @@ async def upload_document(
         chunks_count=result["chunks_count"],
         skipped=result.get("skipped", False),
         reason=result.get("reason"),
+    )
+
+
+@router.post("/upload-bulk", response_model=BulkUploadResponse)
+async def upload_documents_bulk(
+    files: list[UploadFile] = File(...),
+    pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
+    _user: dict = Depends(require_admin),
+):
+    async def process_one(file: UploadFile) -> BulkUploadResult:
+        if not file.filename:
+            return BulkUploadResult(filename="unknown", error="Filename is required")
+        try:
+            file_bytes = await file.read()
+            if not file_bytes:
+                return BulkUploadResult(filename=file.filename, error="Empty file")
+            result = await pipeline.ingest_from_bytes(file_bytes, file.filename)
+            return BulkUploadResult(
+                filename=file.filename,
+                document_id=result["document_id"],
+                source=result["source"],
+                chunks_count=result["chunks_count"],
+                skipped=result.get("skipped", False),
+                reason=result.get("reason"),
+            )
+        except Exception as e:
+            return BulkUploadResult(filename=file.filename or "unknown", error=str(e))
+
+    results = await asyncio.gather(*[process_one(f) for f in files])
+    succeeded = sum(1 for r in results if r.error is None)
+    return BulkUploadResponse(
+        total=len(results),
+        succeeded=succeeded,
+        failed=len(results) - succeeded,
+        results=list(results),
     )
 
 

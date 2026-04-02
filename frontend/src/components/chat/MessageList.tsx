@@ -50,9 +50,17 @@ export const MessageList: React.FC<MessageListProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Smooth scroll when a new message is added or clarification state changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, currentResponse, awaitingClarification]);
+  }, [messages, awaitingClarification]);
+
+  // Instant scroll while streaming so new tokens stay in view without jitter
+  useEffect(() => {
+    if (isStreaming && currentResponse) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    }
+  }, [currentResponse, isStreaming]);
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">

@@ -148,9 +148,10 @@ class IngestionPipeline:
 
     async def _parse(self, file_bytes: bytes, filename: str):
         """Parse document using OCR or LLM based on settings."""
+        import asyncio
         if self._settings.parser_mode == "llm":
             return await parse_document_llm(file_bytes, filename, self._llm)
-        return parse_document(file_bytes, filename)
+        return await asyncio.to_thread(parse_document, file_bytes, filename)
 
     async def _generate_hypothetical_questions(self, parent_text: str) -> list[str]:
         """Generate questions this chunk could answer (HyDE-style)."""

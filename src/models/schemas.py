@@ -24,6 +24,23 @@ class DocumentUploadResponse(BaseModel):
     reason: str | None = None
 
 
+class BulkUploadResult(BaseModel):
+    filename: str
+    document_id: str | None = None
+    source: str | None = None
+    chunks_count: int | None = None
+    skipped: bool = False
+    reason: str | None = None
+    error: str | None = None
+
+
+class BulkUploadResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    results: list[BulkUploadResult]
+
+
 class DocumentInfo(BaseModel):
     key: str
     size: int
